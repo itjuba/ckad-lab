@@ -12,5 +12,6 @@ Deployments in Namespace `cygnus` has Pods that keep crashing.
 
 3. Fix the Deployment. The value it needs already exists under key `queue.url`
    in ConfigMap `cygnus-config`. Provide it to the container from that
-   ConfigMap (don't copy the value into the Deployment). Afterwards the
-   Deployment's Pods must run without crashing.
+   ConfigMap, as the environment variable the application expects (don't copy
+   the value into the Deployment). Afterwards the Deployment's Pods must run
+   without crashing.

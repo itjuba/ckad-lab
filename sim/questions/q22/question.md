@@ -14,6 +14,6 @@ switching over.
 
 2. Keep 4 Pods in total behind the Service, with 25% of them running v2.
 
-3. From a temporary Pod, call the Service 20 times. Write the `Name:` line of
+3. From a temporary Pod in Namespace `castor`, call the Service 20 times. Write the `Name:` line of
    each response into `/opt/course/22/responses`. The file must show both
    `Name: v1` and `Name: v2`.

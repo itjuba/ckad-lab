@@ -16,4 +16,10 @@ check "Pod auditor uses localhost:5000/nimbus-auditor:v1" \
 check "Pod auditor is Running" is "$(jp $P -o jsonpath='{.status.phase}')" "Running"
 check "logs file shows role=auditor build=v1" file_has "$COURSE/11/logs" "role=auditor build=v1"
 
+tar_ok() {
+  local f=$COURSE/11/nimbus-auditor-v1.tar
+  [ -s "$f" ] && tar -tf "$f" 2>/dev/null | grep -qE '^(manifest|index)\.json$'
+}
+check "image exported as a tar archive to nimbus-auditor-v1.tar" tar_ok
+
 finish

@@ -14,5 +14,5 @@ Team Hydra wants Kubernetes to know when its web servers are healthy.
    The Pod must become Ready.
 
 2. The Pods of the existing Deployment `hydra-api` keep restarting and never
-   become Ready. Find out why and fix the Deployment so its rollout completes.
-   Don't change the container image.
+   become Ready. Find out why and fix the Deployment's probes so its rollout
+   completes. Keep both probes, and don't change the container image.

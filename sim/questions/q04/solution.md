@@ -9,7 +9,8 @@ helm search repo nimbus/webapp --versions        # 0.1.0 and 0.2.0
 helm -n vega uninstall vega-legacy
 
 # 2. Find the value names first
-helm show values nimbus/webapp --version 0.2.0 | grep -E 'replicaCount|type:'
+helm show values nimbus/webapp --version 0.2.0 | grep replicaCount
+helm show values nimbus/webapp --version 0.2.0 | grep -A3 '^service:'   # type: ClusterIP
 helm -n vega upgrade vega-api nimbus/webapp --version 0.2.0 --set replicaCount=2
 helm -n vega ls
 

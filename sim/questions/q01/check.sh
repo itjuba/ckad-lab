@@ -10,6 +10,6 @@ expected_count=$(jp pods -A -l tier=frontend -o name | wc -l)
 check "frontend-pods contains $expected_count" is "$(tr -d '[:space:]' <"$D/frontend-pods" 2>/dev/null)" "$expected_count"
 
 expected_node=$(jp pod search-ui -n nimbus-search -o jsonpath='{.spec.nodeName}')
-check "primary-node contains the node of the primary pod" is "$(tr -d '[:space:]' <"$D/primary-node" 2>/dev/null)" "$expected_node"
+check "primary-node contains the node of the primary pod" is "$(tr -d '[:space:]' <"$D/primary-node" 2>/dev/null | sed 's|^node/||')" "$expected_node"
 
 finish

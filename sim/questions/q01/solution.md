@@ -3,16 +3,17 @@
 ```bash
 # 1. -l with only a key matches "label exists, any value"
 k get ns -l nimbus.io/team                    # look first
-k get ns -l nimbus.io/team -o name > /opt/course/1/team-namespaces
-#   -o name prints namespace/<name>, which is fine here. For bare names:
 k get ns -l nimbus.io/team --no-headers | awk '{print $1}' > /opt/course/1/team-namespaces
+#   -o name also works here, but it prints namespace/<name>. When a task asks for
+#   names, write bare names.
 
 # 2. -A = all namespaces, --no-headers so wc counts only pods
 k get pods -A -l tier=frontend --no-headers | wc -l > /opt/course/1/frontend-pods
 
-# 3. Annotations can't be used as selectors, so read them from describe
-k describe pods -A | grep -E '^Name:|^Node:|nimbus.io/role'
-#   the Name/Node lines just above "nimbus.io/role=primary" are the ones you want
+# 3. Annotations can't be used as selectors, so search the describe output
+k describe pods -A | less
+#   type /primary and press Enter: less jumps to "nimbus.io/role: primary"
+#   scroll up a few lines to read that Pod's Name: and Node:, then press q
 echo <node-name> > /opt/course/1/primary-node
 ```
 

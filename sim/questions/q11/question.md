@@ -17,3 +17,6 @@ from the registry at `localhost:5000`.
    `localhost:5000/nimbus-auditor:v1`.
 
 4. Write the Pod's logs into `/opt/course/11/logs`.
+
+5. Export the image `localhost:5000/nimbus-auditor:v1` as a tar archive to
+   `/opt/course/11/nimbus-auditor-v1.tar`.

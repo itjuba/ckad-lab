@@ -6,7 +6,8 @@ how traffic is split.
 
 ```bash
 k -n castor describe svc castor | grep Selector                    # app=castor
-k -n castor get deploy castor-v1 -o yaml > 22.yaml                  # start from v1
+k -n castor get pod --show-labels                                   # v1 Pods: app=castor,version=v1
+k -n castor create deploy castor-v2 --image=traefik/whoami:v1.11 --replicas=1 $do > 22.yaml
 vim 22.yaml
 ```
 
@@ -14,28 +15,28 @@ vim 22.yaml
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: castor-v2                # was: castor-v1
+  name: castor-v2
   namespace: castor
 spec:
-  replicas: 1                    # was: 4
+  replicas: 1
   selector:
     matchLabels:
-      app: castor
-      version: v2                # was: v1
+      app: castor                # was: castor-v2
+      version: v2                # added
   template:
     metadata:
       labels:
-        app: castor              # matched by the Service
-        version: v2              # was: v1
+        app: castor              # was: castor-v2 (this is what the Service matches)
+        version: v2              # added
     spec:
       containers:
       - name: whoami
         image: traefik/whoami:v1.11
-        args: ["--name=v2"]      # was: --name=v1
+        args: ["--name=v2"]      # added
 ```
 
-Delete the `status`, `uid`, `resourceVersion` and `creationTimestamp` lines
-before applying.
+`create deploy ... -- <cmd>` would set `command` and replace the image's entrypoint,
+so add `args` in vim instead.
 
 ```bash
 k apply -f 22.yaml

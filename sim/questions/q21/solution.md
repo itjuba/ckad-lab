@@ -4,10 +4,10 @@
 # 1. The Deployment is fine. Its ReplicaSet is the one failing to create Pods.
 k -n deneb get deploy,rs,pod
 k -n deneb describe rs -l app=deneb-app | grep -A3 Events
-k -n deneb get events --field-selector reason=FailedCreate
 # Error creating: pods "deneb-app-..." is forbidden: failed quota: deneb-quota:
 #   must specify limits.cpu for: nginx; limits.memory for: nginx; requests.cpu ...
-vim /opt/course/21/reason        # paste the message
+k -n deneb get events | grep -i quota | tail -1 > /opt/course/21/reason
+#   (or copy the message from describe into the file with vim)
 
 # 2.
 k -n deneb set resources deploy deneb-app \
@@ -39,7 +39,7 @@ k apply -f 21-lr.yaml
 
 # 4.
 k -n deneb run deneb-probe --image=nginx:1.29-alpine
-k -n deneb describe pod deneb-probe | grep -A2 -E 'Limits|Requests'   # filled in by the LimitRange
+k -n deneb describe pod deneb-probe | grep -A5 Limits     # Limits and Requests, filled in by the LimitRange
 ```
 
 Remember:

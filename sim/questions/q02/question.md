@@ -1,4 +1,4 @@
-# Pod with a named port and a status script
+# Pod with a named port and an IP script
 
 Namespace: `lyra`
 

@@ -28,7 +28,7 @@ k get bk -n pollux
 echo bk > /opt/course/23/short-name
 
 # 3. Which versions does the cluster serve?
-k api-versions | grep -E 'autoscaling|policy'      # autoscaling/v1, autoscaling/v2, policy/v1
+k api-versions | grep -e autoscaling -e policy    # autoscaling/v1, autoscaling/v2, policy/v1
 k apply -f /opt/course/23/legacy/                   # error: no matches for kind ... in version ...
 k explain hpa.spec.metrics.resource --api-version=autoscaling/v2
 vim /opt/course/23/legacy/hpa.yaml
@@ -57,7 +57,7 @@ spec:
 ```
 
 ```bash
-sed -i 's#policy/v1beta1#policy/v1#' /opt/course/23/legacy/pdb.yaml   # same fields in v1
+vim /opt/course/23/legacy/pdb.yaml        # policy/v1beta1 -> policy/v1, the fields stay the same
 k apply -f /opt/course/23/legacy/
 k -n pollux get hpa,pdb
 ```

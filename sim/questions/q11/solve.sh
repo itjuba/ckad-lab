@@ -10,3 +10,4 @@ kubectl run auditor -n polaris --image=localhost:5000/nimbus-auditor:v1
 kubectl wait --for=condition=Ready pod/auditor -n polaris --timeout=120s
 sleep 2
 kubectl logs auditor -n polaris >/opt/course/11/logs
+docker save localhost:5000/nimbus-auditor:v1 -o /opt/course/11/nimbus-auditor-v1.tar

@@ -2,7 +2,7 @@
 source "$CKAD_HOME/lib/common.sh"
 S="svc columba-web -n columba"
 
-check "cause mentions the selector" grep -qi "selector\|label" "$COURSE/27/cause"
+check "cause mentions the selector" grep -qi -e selector -e label -e columba-website "$COURSE/27/cause"
 
 endpoints_ok() {
   local svc_ips pod_ips

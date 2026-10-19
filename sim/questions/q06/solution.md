@@ -40,8 +40,9 @@ k -n hydra get pod heartbeat -w        # READY 0/1 -> 1/1 after ~5-15s
 
 ```bash
 k -n hydra get pods                    # RESTARTS keeps climbing, READY 0/1
-k -n hydra describe pod -l app=hydra-api | grep -A3 -E 'Liveness|Readiness|Unhealthy'
-#   Liveness probe failed: ... dial tcp <ip>:8080: connect: connection refused
+k -n hydra describe deploy hydra-api | grep -i -e port -e liveness -e readiness
+#   Port: 80/TCP, but Liveness/Readiness: http-get http://:8080/  -> nothing listens on 8080
+#   Recent Pod Events say the same: Liveness probe failed: ... :8080: connection refused
 k -n hydra edit deploy hydra-api       # both probes: port: 8080 -> port: 80 (or: port: http)
 k -n hydra rollout status deploy hydra-api
 ```
