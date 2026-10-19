@@ -9,7 +9,21 @@ source <(helm completion bash)
 alias k=kubectl
 complete -o default -F __start_kubectl k
 
-PS1='\[\e[1;32m\]candidate@ckad\[\e[0m\]:\[\e[1;34m\]\w\[\e[0m\]$ '
+# In exam mode the prompt shows the time left, e.g. [exam 1:42] candidate@ckad:~$
+__ckad_prompt() {
+  local state=/opt/course/.ckad left
+  CKAD_TAG=
+  if [ "$(cat "$state/mode" 2>/dev/null)" = exam ] && [ -f "$state/exam-start" ]; then
+    left=$(($(cat "$state/exam-start") + 7200 - $(date +%s)))
+    if [ "$left" -gt 0 ]; then
+      CKAD_TAG=$(printf '[exam %d:%02d] ' $((left / 3600)) $((left % 3600 / 60)))
+    else
+      CKAD_TAG='[exam: time is up, run ckad exam end] '
+    fi
+  fi
+}
+PROMPT_COMMAND=__ckad_prompt
+PS1='\[\e[1;33m\]${CKAD_TAG}\[\e[1;32m\]candidate@ckad\[\e[0m\]:\[\e[1;34m\]\w\[\e[0m\]$ '
 
 if [ -z "$CKAD_MOTD_SHOWN" ]; then
   export CKAD_MOTD_SHOWN=1
@@ -17,9 +31,11 @@ if [ -z "$CKAD_MOTD_SHOWN" ]; then
 
   CKAD practice terminal  (Kubernetes v1.37, single cluster, answers go in /opt/course/<n>/)
 
-    ckad list            all questions          ckad check 3     score question 3
-    ckad q 3             read question 3        ckad check       score everything
-    ckad solution 3      show the solution      ckad reset 3     start question 3 over
+  Learning mode (basics first)          Mock exam (2 hours, graded at the end)
+    ckad next        next question        ckad exam start
+    ckad check 3     grade question 3     ckad exam          time left
+    ckad solution 3  show the solution    ckad exam end      final score
+    ckad list        path + progress      ckad help          all commands
 
   Tip: export do="--dry-run=client -o yaml"   now="--force --grace-period=0"
 

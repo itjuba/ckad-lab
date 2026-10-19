@@ -1,0 +1,58 @@
+# Learning mode order: basics first, following the CKAD topics.
+# "## " lines are section headings shown by `ckad list`; other "#" lines are comments.
+# Each remaining line is one question number. Edit freely.
+
+## Pods & kubectl basics
+1
+2
+29
+30
+## Deployments
+31
+32
+8
+## Jobs & other workloads
+3
+33
+19
+34
+35
+36
+24
+16
+## Storage
+12
+13
+## Configuration
+15
+37
+14
+38
+## Services & Ingress
+10
+39
+27
+18
+## Observability & debugging
+6
+7
+40
+25
+## Resources & security
+42
+21
+9
+41
+5
+## Deployment strategies
+26
+22
+## Tools
+11
+4
+17
+## NetworkPolicies
+20
+28
+## Extending Kubernetes
+23

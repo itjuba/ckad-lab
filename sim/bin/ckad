@@ -2,8 +2,12 @@
 # ckad: question runner for the CKAD practice simulator (runs inside the exam terminal).
 export CKAD_HOME=${CKAD_HOME:-/ckad}
 QDIR=$CKAD_HOME/questions
+PATH_FILE=$CKAD_HOME/learning-path
 LOGDIR=/tmp/ckad-logs
-mkdir -p "$LOGDIR" /opt/course
+# Mode, progress and exam timer live next to the answers, so they survive restarts.
+STATE=${CKAD_STATE:-/opt/course/.ckad}
+EXAM_SECONDS=7200
+mkdir -p "$LOGDIR" /opt/course "$STATE"
 
 # Official CKAD curriculum domains (cncf/curriculum, CKAD_Curriculum_v1.37) and weights.
 DOMAINS=(D1 D2 D3 D4 D5)
@@ -16,16 +20,29 @@ declare -A DNAME=(
 )
 declare -A DSHORT=([D1]="Design & Build" [D2]="Deployment" [D3]="Observability" [D4]="Config & Security" [D5]="Networking")
 declare -A DWEIGHT=([D1]=20 [D2]=20 [D3]=15 [D4]=25 [D5]=20)
+# Mock exam: 18 random questions per run, spread like the exam (the real one has 16-20 tasks).
+declare -A EXAM_PICK=([D1]=4 [D2]=4 [D3]=3 [D4]=4 [D5]=3)
 
 usage() {
   cat <<'EOF'
 Usage: ckad <command> [question]
 
-  list                 list all questions with their exam domain
+Learning mode (default): follow the learning path, basics first
+  next                 show the next question you haven't passed yet
+  list                 the learning path with your progress
   q <n>                show question n
-  check [n]            score question n, or every question (with exam-weighted total)
+  check [n]            grade question n (a full score marks it passed), or everything
   solution <n>         show the solution for question n
   reset <n|all>        put question n (or everything) back to its starting state
+  progress clear       forget which questions you passed
+
+Exam mode: a 2-hour mock exam, no grading or solutions until the end
+  exam start           pick 18 random questions, reset them, start the timer
+  exam start --keep    same, without resetting them
+  exam                 time left
+  exam end             grade everything, show the final score, back to learning mode
+  exam abort           stop without grading
+  exam history         your past exam scores
 EOF
 }
 
@@ -40,6 +57,32 @@ need() {
 }
 ok() { printf '\e[32m✔\e[0m'; }
 ko() { printf '\e[31m✘\e[0m'; }
+
+mode() { cat "$STATE/mode" 2>/dev/null || echo learn; }
+in_exam() { [ "$(mode)" = exam ]; }
+passed() { grep -qx "$1" "$STATE/passed" 2>/dev/null; }
+mark_passed() { passed "$1" || echo "$1" >>"$STATE/passed"; }
+path_ids() {
+  local n
+  for n in $(grep -E '^[0-9]+[[:space:]]*$' "$PATH_FILE" | tr -d ' \t\r'); do
+    [ -d "$(qdir "$n")" ] && echo "$n"
+  done
+}
+next_id() {
+  local n
+  for n in $(path_ids); do passed "$n" || { echo "$n"; return; }; done
+}
+step_of() { path_ids | grep -nx "$1" | cut -d: -f1; }
+exam_left() { echo $(($(cat "$STATE/exam-start") + EXAM_SECONDS - $(date +%s))); }
+fmt_time() {
+  local s=$1
+  [ "$s" -lt 0 ] && s=0
+  printf '%d:%02d:%02d' $((s / 3600)) $((s % 3600 / 60)) $((s % 60))
+}
+exam_only_at_end() {
+  echo "Exam mode: no $1 until the end, like the real exam. Finish with: ckad exam end" >&2
+  exit 1
+}
 
 # score N [quiet] : run check.sh, print task lines (unless quiet), set SCORE_PASS/SCORE_TOTAL.
 score() {
@@ -59,14 +102,37 @@ setup_one() {
   fi
 }
 
+reset_all() {
+  echo "Setting up all questions (takes a few minutes)..."
+  ids | xargs -P 6 -I{} "$0" _setup {}
+}
+
+show_question() {
+  local d
+  d=$(domain "$1")
+  echo
+  if in_exam; then
+    printf '\e[2mQuestion %s · %s (%s%% of the exam) · exam time left %s\e[0m\n\n' \
+      "$1" "${DNAME[$d]}" "${DWEIGHT[$d]}" "$(fmt_time "$(exam_left)")"
+  else
+    printf '\e[2mLearning step %s of %s · Question %s · %s (%s%% of the exam)\e[0m\n\n' \
+      "$(step_of "$1")" "$(path_ids | wc -l)" "$1" "${DNAME[$d]}" "${DWEIGHT[$d]}"
+  fi
+  cat "$(qdir "$1")/question.md"
+  echo
+}
+
+# check_all [N...] : grade the given questions (default all), grouped by domain, weighted total.
 check_all() {
-  local n d pass=0 total=0 weighted=0 wsum=0
+  local n d pass=0 total=0 weighted=0 wsum=0 list
+  list=${*:-$(ids)}
   declare -A dp dt
   for d in "${DOMAINS[@]}"; do
+    dp[$d]=0 dt[$d]=0
+    grep -qx "$d" <<<"$(for n in $list; do domain "$n"; echo; done)" || continue
     echo
     printf '  \e[1m%s (%s%%)\e[0m\n' "${DNAME[$d]}" "${DWEIGHT[$d]}"
-    dp[$d]=0 dt[$d]=0
-    for n in $(ids); do
+    for n in $list; do
       [ "$(domain "$n")" = "$d" ] || continue
       score "$n" quiet
       dp[$d]=$((dp[$d] + SCORE_PASS)) dt[$d]=$((dt[$d] + SCORE_TOTAL))
@@ -92,45 +158,162 @@ check_all() {
     "$final" "$verdict" "$pass" "$total"
 }
 
+list_learning() {
+  local line n done_count=0 total
+  total=$(path_ids | wc -l)
+  for n in $(path_ids); do passed "$n" && done_count=$((done_count + 1)); done
+  printf '\n  \e[1mLearning path\e[0m  %s/%s passed' "$done_count" "$total"
+  n=$(next_id)
+  [ -n "$n" ] && printf '  ·  next: Q%s (ckad next)' "$n"
+  echo
+  while IFS= read -r line; do
+    if [[ $line == '## '* ]]; then
+      printf '\n  \e[1m%s\e[0m\n' "${line#\#\# }"
+    elif [[ $line =~ ^[0-9]+[[:space:]]*$ ]]; then
+      n=${line//[[:space:]]/}
+      [ -d "$(qdir "$n")" ] || continue
+      if passed "$n"; then mark=$(ok); elif [ "$n" = "$(next_id)" ]; then mark='\e[33m▶\e[0m'; else mark=' '; fi
+      printf "    $mark %3s  %-54s %s\n" "$n" "$(title "$n" | cut -c1-54)" "${DSHORT[$(domain "$n")]}"
+    fi
+  done <"$PATH_FILE"
+}
+
+exam_ids() { cat "$STATE/exam-questions" 2>/dev/null; }
+
+list_exam() {
+  local i=0 n
+  printf '\n  \e[1mMock exam\e[0m  ·  %s questions  ·  time left %s  ·  finish with: ckad exam end\n\n' \
+    "$(exam_ids | wc -l)" "$(fmt_time "$(exam_left)")"
+  for n in $(exam_ids); do
+    i=$((i + 1))
+    printf '  %2s.  Q%-3s %-54s %s\n' "$i" "$n" "$(title "$n" | cut -c1-54)" "${DSHORT[$(domain "$n")]}"
+  done
+  echo
+  echo "  Read one with: ckad q <Q number>"
+}
+
+cmd_exam() {
+  case ${1:-status} in
+    start)
+      if in_exam; then
+        echo "An exam is already running ($(fmt_time "$(exam_left)") left). End it with: ckad exam end"
+        exit 1
+      fi
+      picked=$(for d in "${DOMAINS[@]}"; do
+        for n in $(ids); do [ "$(domain "$n")" = "$d" ] && echo "$n"; done | shuf | head -n "${EXAM_PICK[$d]}"
+      done | shuf)
+      if [ "$2" != --keep ]; then
+        printf 'This resets the %s picked questions and deletes their answers in /opt/course. Continue? [y/N] ' \
+          "$(wc -l <<<"$picked")"
+        read -r answer
+        [[ $answer =~ ^[yY] ]] || { echo "Cancelled."; exit 1; }
+        echo "Setting up the exam questions..."
+        xargs -P 6 -I{} "$0" _setup {} <<<"$picked"
+      fi
+      echo "$picked" >"$STATE/exam-questions"
+      echo exam >"$STATE/mode"
+      date +%s >"$STATE/exam-start"
+      list_exam
+      cat <<EOF
+
+  Mock exam started: 2 hours. Your prompt shows the time left.
+  No grading or solutions until: ckad exam end
+
+EOF
+      ;;
+    status)
+      if in_exam; then
+        echo "Exam running: $(fmt_time "$(exam_left)") left. Finish with: ckad exam end"
+      else
+        echo "Learning mode. Start a mock exam with: ckad exam start"
+      fi
+      ;;
+    end)
+      in_exam || { echo "No exam running."; exit 1; }
+      used=$(($(date +%s) - $(cat "$STATE/exam-start")))
+      echo "Grading... (time used: $(fmt_time "$used"))"
+      check_all $(exam_ids)
+      printf '%s  %s%%  time used %s  questions: %s\n' "$(date '+%Y-%m-%d %H:%M')" "$final" "$(fmt_time "$used")" \
+        "$(exam_ids | tr '\n' ' ')" >>"$STATE/exam-history"
+      rm -f "$STATE/mode" "$STATE/exam-start" "$STATE/exam-questions"
+      echo
+      echo "  Back in learning mode. Solutions are unlocked: ckad solution <n>"
+      ;;
+    abort)
+      rm -f "$STATE/mode" "$STATE/exam-start" "$STATE/exam-questions"
+      echo "Exam stopped without grading. Back in learning mode."
+      ;;
+    history)
+      if [ -s "$STATE/exam-history" ]; then cat "$STATE/exam-history"; else echo "No exams taken yet."; fi
+      ;;
+    *)
+      usage
+      exit 1
+      ;;
+  esac
+}
+
 cmd=${1:-help}
 shift
 case $cmd in
   list | ls)
-    for n in $(ids); do
-      printf '  %3s  %-56s %s\n' "$n" "$(title "$n" | cut -c1-56)" "${DSHORT[$(domain "$n")]}"
-    done
+    if in_exam; then list_exam; else list_learning; fi
+    ;;
+  next)
+    in_exam && { echo "Exam mode: work through the questions in any order (ckad list)."; exit 1; }
+    n=$(next_id)
+    [ -z "$n" ] && { echo "You've passed every question in the learning path. Try a mock exam: ckad exam start"; exit 0; }
+    show_question "$n"
     ;;
   q | show | question)
+    if [ -z "$1" ] && ! in_exam; then set -- "$(next_id)"; fi
     need "$1"
-    d=$(domain "$1")
-    printf '\n\e[2mQuestion %s · %s (%s%% of the exam)\e[0m\n\n' "$1" "${DNAME[$d]}" "${DWEIGHT[$d]}"
-    cat "$(qdir "$1")/question.md"
-    echo
+    show_question "$1"
     ;;
   solution | sol)
+    in_exam && exam_only_at_end "solutions"
     need "$1"
     echo
     cat "$(qdir "$1")/solution.md"
     echo
     ;;
   check | score)
+    in_exam && exam_only_at_end "grading"
     if [ -n "$1" ]; then
       need "$1"
       echo "Q$1  $(title "$1")"
       score "$1"
       printf '  %s/%s tasks\n' "$SCORE_PASS" "$SCORE_TOTAL"
+      if [ "$SCORE_TOTAL" -gt 0 ] && [ "$SCORE_PASS" = "$SCORE_TOTAL" ]; then
+        mark_passed "$1"
+        n=$(next_id)
+        if [ -n "$n" ]; then echo "  Passed! Next in the learning path: Q$n $(title "$n")  (ckad next)"; fi
+      fi
     else
       check_all
     fi
     ;;
   reset | setup)
     if [ "$1" = all ]; then
-      echo "Setting up all questions (takes a few minutes)..."
-      ids | xargs -P 6 -I{} "$0" _setup {}
+      reset_all
     else
       need "$1"
       setup_one "$1"
     fi
+    ;;
+  progress)
+    if [ "$1" = clear ]; then
+      rm -f "$STATE/passed"
+      echo "Learning progress cleared."
+    else
+      usage
+    fi
+    ;;
+  exam)
+    cmd_exam "$@"
+    ;;
+  mode)
+    echo "Current mode: $(mode)"
     ;;
   _setup)
     setup_one "$1"
