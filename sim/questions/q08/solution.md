@@ -39,5 +39,5 @@ Remember:
 - Rolling back doesn't restore the old revision number. That revision becomes
   the newest one.
 - `kubectl set image` needs the **container** name. Find it with
-  `k get deploy perseus-web -o jsonpath='{..containers[*].name}'`.
+  `k describe deploy perseus-web -n perseus | grep -A1 Containers`.
 - `--record` is deprecated. Set the `kubernetes.io/change-cause` annotation yourself.

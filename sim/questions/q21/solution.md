@@ -39,7 +39,7 @@ k apply -f 21-lr.yaml
 
 # 4.
 k -n deneb run deneb-probe --image=nginx:1.29-alpine
-k -n deneb get pod deneb-probe -o jsonpath='{.spec.containers[0].resources}'; echo
+k -n deneb describe pod deneb-probe | grep -A2 -E 'Limits|Requests'   # filled in by the LimitRange
 ```
 
 Remember:

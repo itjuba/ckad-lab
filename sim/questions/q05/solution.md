@@ -4,7 +4,9 @@
 # 1. Find the Secret whose annotation points at orion-ci (orion-web-token is the wrong one)
 k -n orion get secret
 k -n orion describe secret orion-ci-token              # describe already shows it decoded
-k -n orion get secret orion-ci-token -o jsonpath='{.data.token}' | base64 -d > /opt/course/5/token
+k -n orion describe secret orion-ci-token | grep '^token' | awk '{print $2}' > /opt/course/5/token
+#   or decode it yourself: k get secret ... -o yaml, copy .data.token, then
+#   echo <value> | base64 -d > /opt/course/5/token
 
 # 2. Pods and pods/log need different verbs, so write the Role as YAML
 k -n orion create role pod-reader --verb=get,list,watch --resource=pods $do > 5-role.yaml

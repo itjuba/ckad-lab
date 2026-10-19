@@ -18,7 +18,6 @@ The restarting Pod:
 ```bash
 k get pod lynx-flaky -n lynx                 # RESTARTS keeps growing
 k describe pod lynx-flaky -n lynx            # Last State: Terminated, Reason: OOMKilled
-k get pod lynx-flaky -n lynx -o jsonpath='{.status.containerStatuses[0].lastState.terminated.reason}'
 
 echo OOMKilled > /opt/course/25/flaky-reason
 ```

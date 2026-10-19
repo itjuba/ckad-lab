@@ -24,10 +24,15 @@ spec:
 
 ```bash
 k apply -f 2.yaml
-k get pod lyra-web -n lyra -o wide
+k get pod lyra-web -n lyra -o wide                     # IP is the 6th column
 
-echo "kubectl get pod lyra-web -n lyra -o jsonpath='{.status.podIP}'" > /opt/course/2/pod-ip.sh
+echo "kubectl get pod lyra-web -n lyra -o wide --no-headers | awk '{print \$6}'" > /opt/course/2/pod-ip.sh
 bash /opt/course/2/pod-ip.sh
 ```
 
 Scripts don't load your shell aliases, so `k` would fail inside `pod-ip.sh`.
+
+The `\$6` keeps the shell from expanding `$6` while `echo` writes the file. If the Pod
+had restarted, RESTARTS would read `1 (2m ago)` and shift the columns. A version that
+doesn't depend on column order:
+`kubectl get pod lyra-web -n lyra -o custom-columns=IP:.status.podIP --no-headers`.

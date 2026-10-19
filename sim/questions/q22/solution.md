@@ -5,7 +5,7 @@ Pods the label the Service selects (`app=castor`), and the replica counts decide
 how traffic is split.
 
 ```bash
-k -n castor get svc castor -o jsonpath='{.spec.selector}'; echo     # {"app":"castor"}
+k -n castor describe svc castor | grep Selector                    # app=castor
 k -n castor get deploy castor-v1 -o yaml > 22.yaml                  # start from v1
 vim 22.yaml
 ```
