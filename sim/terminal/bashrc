@@ -1,0 +1,27 @@
+# Exam terminal shell setup. Like the real exam: `k` alias + kubectl completion, nothing more.
+export CKAD_HOME=/ckad
+export PATH=$CKAD_HOME/bin:$PATH
+export EDITOR=vim KUBE_EDITOR=vim
+
+[ -f /usr/share/bash-completion/bash_completion ] && source /usr/share/bash-completion/bash_completion
+source <(kubectl completion bash)
+source <(helm completion bash)
+alias k=kubectl
+complete -o default -F __start_kubectl k
+
+PS1='\[\e[1;32m\]candidate@ckad\[\e[0m\]:\[\e[1;34m\]\w\[\e[0m\]$ '
+
+if [ -z "$CKAD_MOTD_SHOWN" ]; then
+  export CKAD_MOTD_SHOWN=1
+  cat <<'EOF'
+
+  CKAD practice terminal  (Kubernetes v1.37, single cluster, answers go in /opt/course/<n>/)
+
+    ckad list            all questions          ckad check 3     score question 3
+    ckad q 3             read question 3        ckad check       score everything
+    ckad solution 3      show the solution      ckad reset 3     start question 3 over
+
+  Tip: export do="--dry-run=client -o yaml"   now="--force --grace-period=0"
+
+EOF
+fi

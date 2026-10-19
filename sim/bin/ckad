@@ -1,0 +1,165 @@
+#!/usr/bin/env bash
+# ckad: question runner for the CKAD practice simulator (runs inside the exam terminal).
+export CKAD_HOME=${CKAD_HOME:-/ckad}
+QDIR=$CKAD_HOME/questions
+LOGDIR=/tmp/ckad-logs
+mkdir -p "$LOGDIR" /opt/course
+
+# Official CKAD curriculum domains (cncf/curriculum, CKAD_Curriculum_v1.37) and weights.
+DOMAINS=(D1 D2 D3 D4 D5)
+declare -A DNAME=(
+  [D1]="Application Design and Build"
+  [D2]="Application Deployment"
+  [D3]="Application Observability and Maintenance"
+  [D4]="Application Environment, Configuration and Security"
+  [D5]="Services and Networking"
+)
+declare -A DSHORT=([D1]="Design & Build" [D2]="Deployment" [D3]="Observability" [D4]="Config & Security" [D5]="Networking")
+declare -A DWEIGHT=([D1]=20 [D2]=20 [D3]=15 [D4]=25 [D5]=20)
+
+usage() {
+  cat <<'EOF'
+Usage: ckad <command> [question]
+
+  list                 list all questions with their exam domain
+  q <n>                show question n
+  check [n]            score question n, or every question (with exam-weighted total)
+  solution <n>         show the solution for question n
+  reset <n|all>        put question n (or everything) back to its starting state
+EOF
+}
+
+qdir() { printf '%s/q%02d' "$QDIR" "$((10#$1))"; }
+ids() { for d in "$QDIR"/q*/; do basename "$d" | sed 's/^q0*//'; done; }
+title() { head -1 "$(qdir "$1")/question.md" | sed 's/^# *//'; }
+domain() { tr -d '[:space:]' <"$(qdir "$1")/domain" 2>/dev/null; }
+need() {
+  [[ $1 =~ ^[0-9]+$ ]] && [ -d "$(qdir "$1")" ] && return
+  echo "No such question: ${1:-<missing>}  (try: ckad list)" >&2
+  exit 1
+}
+ok() { printf '\e[32m✔\e[0m'; }
+ko() { printf '\e[31m✘\e[0m'; }
+
+# score N [quiet] : run check.sh, print task lines (unless quiet), set SCORE_PASS/SCORE_TOTAL.
+score() {
+  local out
+  out=$(bash "$(qdir "$1")/check.sh" 2>/dev/null)
+  read -r _ SCORE_PASS SCORE_TOTAL <<<"$(grep '^RESULT ' <<<"$out" | tail -1)"
+  SCORE_PASS=${SCORE_PASS:-0} SCORE_TOTAL=${SCORE_TOTAL:-0}
+  [ -z "$2" ] && grep -v '^RESULT ' <<<"$out"
+}
+
+setup_one() {
+  if bash "$(qdir "$1")/setup.sh" >"$LOGDIR/setup-$1.log" 2>&1; then
+    printf '  %s Q%-3s ready\n' "$(ok)" "$1"
+  else
+    printf '  %s Q%-3s setup failed, see %s\n' "$(ko)" "$1" "$LOGDIR/setup-$1.log"
+    return 1
+  fi
+}
+
+check_all() {
+  local n d pass=0 total=0 weighted=0 wsum=0
+  declare -A dp dt
+  for d in "${DOMAINS[@]}"; do
+    echo
+    printf '  \e[1m%s (%s%%)\e[0m\n' "${DNAME[$d]}" "${DWEIGHT[$d]}"
+    dp[$d]=0 dt[$d]=0
+    for n in $(ids); do
+      [ "$(domain "$n")" = "$d" ] || continue
+      score "$n" quiet
+      dp[$d]=$((dp[$d] + SCORE_PASS)) dt[$d]=$((dt[$d] + SCORE_TOTAL))
+      if [ "$SCORE_PASS" = "$SCORE_TOTAL" ]; then mark=$(ok); else mark=$(ko); fi
+      printf '    %s Q%-3s %-54s %2s/%-2s\n' "$mark" "$n" "$(title "$n" | cut -c1-54)" "$SCORE_PASS" "$SCORE_TOTAL"
+    done
+  done
+
+  echo
+  printf '  \e[1m%-24s %7s %9s %6s\e[0m\n' "Domain" "Weight" "Tasks" "Score"
+  for d in "${DOMAINS[@]}"; do
+    [ "${dt[$d]}" -gt 0 ] || continue
+    pct=$((dp[$d] * 100 / dt[$d]))
+    printf '  %-24s %6s%% %4s/%-4s %5s%%\n' "${DSHORT[$d]}" "${DWEIGHT[$d]}" "${dp[$d]}" "${dt[$d]}" "$pct"
+    pass=$((pass + dp[$d])) total=$((total + dt[$d]))
+    weighted=$((weighted + DWEIGHT[$d] * dp[$d] * 1000 / dt[$d]))
+    wsum=$((wsum + DWEIGHT[$d]))
+  done
+  final=$((wsum ? weighted / wsum / 10 : 0))
+  echo
+  if [ "$final" -ge 66 ]; then verdict="$(ok) PASS"; else verdict="$(ko) not yet"; fi
+  printf '  Exam-weighted score: \e[1m%s%%\e[0m  %s  (pass mark 66%%; %s/%s tasks overall)\n' \
+    "$final" "$verdict" "$pass" "$total"
+}
+
+cmd=${1:-help}
+shift
+case $cmd in
+  list | ls)
+    for n in $(ids); do
+      printf '  %3s  %-56s %s\n' "$n" "$(title "$n" | cut -c1-56)" "${DSHORT[$(domain "$n")]}"
+    done
+    ;;
+  q | show | question)
+    need "$1"
+    d=$(domain "$1")
+    printf '\n\e[2mQuestion %s · %s (%s%% of the exam)\e[0m\n\n' "$1" "${DNAME[$d]}" "${DWEIGHT[$d]}"
+    cat "$(qdir "$1")/question.md"
+    echo
+    ;;
+  solution | sol)
+    need "$1"
+    echo
+    cat "$(qdir "$1")/solution.md"
+    echo
+    ;;
+  check | score)
+    if [ -n "$1" ]; then
+      need "$1"
+      echo "Q$1  $(title "$1")"
+      score "$1"
+      printf '  %s/%s tasks\n' "$SCORE_PASS" "$SCORE_TOTAL"
+    else
+      check_all
+    fi
+    ;;
+  reset | setup)
+    if [ "$1" = all ]; then
+      echo "Setting up all questions (takes a few minutes)..."
+      ids | xargs -P 6 -I{} "$0" _setup {}
+    else
+      need "$1"
+      setup_one "$1"
+    fi
+    ;;
+  _setup)
+    setup_one "$1"
+    ;;
+  selftest)
+    # Maintainers: setup -> check (must not already pass) -> solve -> check (must fully pass).
+    targets=$1
+    [ -z "$1" ] || [ "$1" = all ] && targets=$(ids)
+    failed=0
+    for n in $targets; do
+      need "$n"
+      setup_one "$n" >/dev/null || { printf '  %s Q%-3s setup failed\n' "$(ko)" "$n"; failed=1; continue; }
+      score "$n" quiet
+      before="$SCORE_PASS/$SCORE_TOTAL"
+      bash "$(qdir "$n")/solve.sh" >"$LOGDIR/solve-$n.log" 2>&1
+      score "$n" quiet
+      if [ "$SCORE_PASS" = "$SCORE_TOTAL" ] && [ "${before%%/*}" -lt "$SCORE_TOTAL" ]; then
+        printf '  %s Q%-3s before %-6s after %s/%s\n' "$(ok)" "$n" "$before" "$SCORE_PASS" "$SCORE_TOTAL"
+      else
+        printf '  %s Q%-3s before %-6s after %s/%s\n' "$(ko)" "$n" "$before" "$SCORE_PASS" "$SCORE_TOTAL"
+        score "$n" | grep '✘'
+        failed=1
+      fi
+    done
+    exit $failed
+    ;;
+  help | -h | --help) usage ;;
+  *)
+    usage
+    exit 1
+    ;;
+esac
