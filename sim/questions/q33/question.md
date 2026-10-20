@@ -4,8 +4,8 @@ Namespace: `sagitta`
 
 The import Job `sagitta-import` in Namespace `sagitta` has failed.
 
-1. Write the reason Kubernetes gives for the Job's failure (one word, as shown by
-   `kubectl describe job`) into `/opt/course/33/job-reason`.
+1. Write the reason Kubernetes gives for the Job's failure (one word, the reason of the
+   Job's `Failed` condition) into `/opt/course/33/job-reason`.
 
 2. Write the error line from the logs of one of the Job's Pods into
    `/opt/course/33/error.log`.

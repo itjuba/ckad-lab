@@ -46,9 +46,10 @@ cat /opt/course/38/env.txt
 run in your terminal instead of in the Pod.
 
 Remember:
-- `envFrom` takes every key as-is, so the keys must be valid variable names. `env` +
-  `secretKeyRef` picks one key and lets you name the variable.
-- `k set env deploy/norma-worker --from=secret/norma-db` adds the same `envFrom` entry
-  without opening vim.
+- `envFrom` takes every key as-is and keeps the key names. `env` + `secretKeyRef` picks
+  one key and lets you name the variable.
+- `k set env deploy/norma-worker --from=secret/norma-db` is NOT the same: it writes one
+  `env` entry per key (each with `secretKeyRef`), not an `envFrom` block. When a task says
+  "via envFrom", edit the YAML.
 - Env vars are read when the container starts. Changing the Secret later doesn't update
   running Pods until they restart.

@@ -2,6 +2,7 @@
 export CKAD_HOME=/ckad
 export PATH=$CKAD_HOME/bin:$PATH
 export EDITOR=vim KUBE_EDITOR=vim
+export LANG=C.UTF-8 LESSCHARSET=utf-8      # so less/vim show ✔, → and friends correctly
 
 [ -f /usr/share/bash-completion/bash_completion ] && source /usr/share/bash-completion/bash_completion
 source <(kubectl completion bash)
@@ -31,11 +32,13 @@ if [ -z "$CKAD_MOTD_SHOWN" ]; then
 
   CKAD practice terminal  (Kubernetes v1.37, single cluster, answers go in /opt/course/<n>/)
 
+  New here? Start with the course:  ckad course   (then ckad explain 0)
+
   Learning mode (basics first)          Mock exam (2 hours, graded at the end)
     ckad next        next question        ckad exam start
-    ckad check 3     grade question 3     ckad exam          time left
-    ckad solution 3  show the solution    ckad exam end      final score
-    ckad list        path + progress      ckad help          all commands
+    ckad explain 3   theory behind Q3     ckad exam          time left
+    ckad check 3     grade question 3     ckad exam end      final score
+    ckad solution 3  show the solution    ckad help          all commands
 
   Tip: export do="--dry-run=client -o yaml"   now="--force --grace-period=0"
 

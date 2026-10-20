@@ -1,4 +1,4 @@
 # Answer files written during practice (/opt/course inside the terminal)
-course/
+/course/
 # Generated kubeconfig and registry config
-.state/
+/.state/

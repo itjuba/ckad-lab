@@ -5,6 +5,8 @@ Investigate first:
 ```bash
 k get job,pod -n sagitta                    # COMPLETIONS 0/1, Pods in Error
 k describe job sagitta-import -n sagitta    # Events: Warning  BackoffLimitExceeded
+#   Events expire after about an hour. The reason stays in the Job's status:
+k get job sagitta-import -n sagitta -o yaml | grep -i reason     # reason: BackoffLimitExceeded
 echo BackoffLimitExceeded > /opt/course/33/job-reason
 
 k logs -n sagitta <one-of-the-pods>         # importing / cat: can't open '/data/input.csv': ...

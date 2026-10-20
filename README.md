@@ -3,7 +3,8 @@
 A local practice simulator for the **Certified Kubernetes Application Developer (CKAD)** exam.
 You solve 42 scenario-based questions in a real Linux terminal against a real Kubernetes
 cluster. Each task is graded against the live cluster, and every question comes with a
-step-by-step solution.
+lesson that teaches the theory first, plus a step-by-step solution. No prior Kubernetes
+knowledge needed: start with Lesson 0.
 
 The questions are written in the style of the killer.sh simulator: existing (sometimes broken)
 resources to find and fix, several steps per question, and answers saved under
@@ -12,6 +13,7 @@ or the Linux Foundation.
 
 **Contents:**
 [Quick start](#quick-start) ·
+[The course](#the-course) ·
 [Learning mode](#learning-mode) ·
 [Exam mode](#exam-mode) ·
 [How grading works](#how-grading-works) ·
@@ -38,16 +40,44 @@ From PowerShell in this folder:
 .\sim.ps1 shell    # open the exam terminal
 ```
 
-You land in a Linux shell (`candidate@ckad:~$`). Start the first question:
+You land in a Linux shell (`candidate@ckad:~$`). New to Kubernetes? Start with the course:
 
 ```bash
+ckad course                              # the course outline
+ckad explain 0                           # Lesson 0: Kubernetes & kubectl fundamentals
 export do="--dry-run=client -o yaml"     # set these at the start of every session,
 export now="--force --grace-period=0"    # like on the real exam
-ckad next
+ckad next                                # the first question
 ```
 
 When you're done for the day, `exit` the terminal and run `.\sim.ps1 stop`. Next time, run
 `.\sim.ps1 start` and then `.\sim.ps1 shell`. Your progress is kept.
+
+---
+
+## The course
+
+Every question has a **lesson** that teaches its topic from scratch before you attempt it:
+
+1. The problem the feature solves, with a real-world example
+2. The theory: what each piece is and how the pieces connect
+3. How it works: small YAML examples with every important line commented
+4. The commands you need for it
+5. How it applies to that question, task by task, without giving the answer away
+6. Common mistakes, and the kubernetes.io docs pages to use on the exam
+
+**Lesson 0** covers the foundation every question builds on: the cluster, objects, YAML,
+namespaces, labels and selectors, the core kubectl commands, the generate → edit → apply
+workflow, and reading what went wrong.
+
+```bash
+ckad course          # Lesson 0 + every lesson in learning order, with your progress
+ckad explain 0       # Lesson 0: Kubernetes & kubectl fundamentals (read once)
+ckad explain 29      # the lesson for question 29 (scroll with space/arrows, q to quit)
+```
+
+The study loop for each step: **`ckad explain N` → `ckad q N` → solve → `ckad check N`**,
+and `ckad solution N` only if you're stuck.
 
 ---
 
@@ -58,13 +88,15 @@ This is the default mode, for practicing topic by topic.
 - Questions follow a **basics-first learning path**: Pods, then Deployments, Jobs, storage,
   configuration, Services, debugging, security, deployment strategies, tools, NetworkPolicies
   and CRDs.
-- Grading (`ckad check <n>`) and solutions (`ckad solution <n>`) are available any time.
+- Lessons (`ckad explain <n>`), grading (`ckad check <n>`) and solutions
+  (`ckad solution <n>`) are available any time.
 - Full marks on a question **marks it passed**. `ckad list` shows ✔ for passed questions and
   ▶ for your next one, and `ckad next` always opens the next unpassed question.
 - `ckad reset <n>` puts a question back to its starting state, so you can repeat it until
   you're fast.
 
 ```bash
+ckad explain 29    # learn the topic first
 ckad next          # read the next question
 # ...solve it with k / vim / helm / docker...
 ckad check 29      # grade it task by task
@@ -155,6 +187,8 @@ weights the total like the exam (example output):
 
 | Command | What it does |
 |---|---|
+| `ckad course` | the course outline: Lesson 0 + every lesson in learning order |
+| `ckad explain <n>` | the lesson for question n (`ckad explain 0` = fundamentals) |
 | `ckad next` | show the next unpassed question in the learning path |
 | `ckad list` | learning path + progress (in exam mode: the exam's questions) |
 | `ckad q <n>` | show question n |
@@ -275,7 +309,8 @@ ckad-lab/
     ├── bin/ckad            the question runner
     ├── lib/common.sh       helpers for setup/check/solve scripts
     ├── terminal/           bashrc, entrypoint, local Helm chart repo
-    └── questions/qNN/      one folder per question
+    ├── course/             Lesson 0 (fundamentals)
+    └── questions/qNN/      one folder per question (question, lesson, solution, grader)
 ```
 
 ---
@@ -288,6 +323,7 @@ Create `sim/questions/qNN/` with:
 - `setup.sh`: creates the starting state; re-runnable, since it's also the reset
 - `check.sh`: one `check "description" <command>` per task, ending with `finish`
 - `solve.sh`: a non-interactive reference solution
+- `explain.md`: the lesson shown by `ckad explain` (theory first; ASCII, lines ≤ 92 chars)
 - `solution.md`: the walkthrough shown by `ckad solution`
 - `domain`: `D1`–`D5`, the curriculum domain used for weighted scoring
 

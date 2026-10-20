@@ -28,9 +28,12 @@ usage() {
 Usage: ckad <command> [question]
 
 Learning mode (default): follow the learning path, basics first
+  course               the course outline: lesson 0, then every lesson in learning order
+  explain 0            lesson 0: Kubernetes & kubectl fundamentals (start here)
   next                 show the next question you haven't passed yet
   list                 the learning path with your progress
   q <n>                show question n
+  explain <n>          learn the topic behind question n first (concepts, YAML, commands)
   check [n]            grade question n (a full score marks it passed), or everything
   solution <n>         show the solution for question n
   reset <n|all>        put question n (or everything) back to its starting state
@@ -120,6 +123,9 @@ show_question() {
   fi
   cat "$(qdir "$1")/question.md"
   echo
+  if ! in_exam; then
+    printf '\e[2mNew to this topic? ckad explain %s   ·   Stuck? ckad solution %s\e[0m\n\n' "$1" "$1"
+  fi
 }
 
 # check_all [N...] : grade the given questions (default all), grouped by domain, weighted total.
@@ -176,6 +182,34 @@ list_learning() {
       printf "    $mark %3s  %-54s %s\n" "$n" "$(title "$n" | cut -c1-54)" "${DSHORT[$(domain "$n")]}"
     fi
   done <"$PATH_FILE"
+}
+
+lesson_title() {
+  local f
+  f="$(qdir "$1")/explain.md"
+  if [ -f "$f" ]; then head -1 "$f" | sed 's/^# *Lesson [0-9]*: *//'; else echo "(lesson coming soon)"; fi
+}
+
+list_course() {
+  local line n mark
+  cat <<'EOF'
+
+  CKAD course: theory first, then practice
+
+    Start once:      ckad explain 0      Kubernetes & kubectl fundamentals
+    For each step:   ckad explain N  ->  ckad q N  ->  ckad check N  (ckad solution N if stuck)
+EOF
+  while IFS= read -r line; do
+    if [[ $line == '## '* ]]; then
+      printf '\n  \e[1m%s\e[0m\n' "${line#\#\# }"
+    elif [[ $line =~ ^[0-9]+[[:space:]]*$ ]]; then
+      n=${line//[[:space:]]/}
+      [ -d "$(qdir "$n")" ] || continue
+      if passed "$n"; then mark=$(ok); elif [ "$n" = "$(next_id)" ]; then mark='\e[33m▶\e[0m'; else mark=' '; fi
+      printf "    $mark %3s  %s\n" "$n" "$(lesson_title "$n" | cut -c1-80)"
+    fi
+  done <"$PATH_FILE"
+  echo
 }
 
 exam_ids() { cat "$STATE/exam-questions" 2>/dev/null; }
@@ -269,6 +303,26 @@ case $cmd in
     if [ -z "$1" ] && ! in_exam; then set -- "$(next_id)"; fi
     need "$1"
     show_question "$1"
+    ;;
+  course)
+    in_exam && exam_only_at_end "lessons"
+    list_course
+    ;;
+  explain | lesson)
+    in_exam && exam_only_at_end "lessons"
+    if [ -z "$1" ]; then set -- "$(next_id)"; fi
+    if [ "$1" = 0 ]; then
+      f=$CKAD_HOME/course/00-fundamentals.md
+    else
+      need "$1"
+      f="$(qdir "$1")/explain.md"
+    fi
+    [ -f "$f" ] || { echo "No lesson for question $1 yet."; exit 1; }
+    if [ -t 1 ]; then
+      LESSCHARSET=utf-8 less -FRX -Ps"Lesson $1 - space or arrows to scroll, q to quit" "$f"
+    else
+      cat "$f"
+    fi
     ;;
   solution | sol)
     in_exam && exam_only_at_end "solutions"
