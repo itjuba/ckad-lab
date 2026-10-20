@@ -4,7 +4,9 @@
 
 .EXAMPLE
   .\sim.ps1 up       # create cluster + terminal and set up every question
+  .\sim.ps1 ui       # open the web UI (http://localhost:8090)
   .\sim.ps1 shell    # open the exam terminal
+  .\sim.ps1 update   # rebuild the terminal image (after git pull); keeps cluster and progress
   .\sim.ps1 stop     # pause everything (keeps your progress)
   .\sim.ps1 start    # resume after stop
   .\sim.ps1 reset    # put every question back to its starting state
@@ -12,7 +14,7 @@
 #>
 param(
   [Parameter(Position = 0)]
-  [ValidateSet('up', 'shell', 'status', 'stop', 'start', 'reset', 'down')]
+  [ValidateSet('up', 'ui', 'shell', 'update', 'status', 'stop', 'start', 'reset', 'down')]
   [string]$Command = 'shell'
 )
 
@@ -25,6 +27,8 @@ $Registry = 'ckad-registry'          # k3d names the container k3d-ckad-registry
 $Terminal = 'ckad-terminal'
 $Image = 'ckad-terminal:latest'
 $K3sImage = 'rancher/k3s:v1.37.1-k3s1'   # CKAD exam runs v1.37 (LF FAQ, Oct 2026)
+$UiPort = 8090
+$UiUrl = "http://localhost:$UiPort"
 
 # Runs a native command and throws on a non-zero exit code. Progress that docker/k3d
 # print on stderr must not count as an error, so 'Stop' is relaxed for the call.
@@ -46,7 +50,11 @@ function Write-Utf8NoBom([string]$Path, [string]$Text) {
 
 function Start-Terminal {
   if (Test-Terminal) { Invoke-Native docker rm -f $Terminal | Out-Null }
+  # Leftover from development, when the UI port was forwarded by a separate container.
+  if (docker ps -aq --filter 'name=^ckad-ui-proxy$') { docker rm -f ckad-ui-proxy | Out-Null }
+  # The web UI listens on $UiPort inside the terminal; publish it on localhost only.
   Invoke-Native docker run -d --name $Terminal --hostname ckad --network "k3d-$Cluster" `
+    -p "127.0.0.1:${UiPort}:${UiPort}" `
     -v "${Root}\sim:/ckad" -v "${Course}:/opt/course" -v "${State}:/ckad-state:ro" `
     -v /var/run/docker.sock:/var/run/docker.sock $Image | Out-Null
 }
@@ -91,11 +99,22 @@ mirrors:
   docker exec $Terminal /ckad/bin/ckad reset all
 
   Write-Host ''
-  Write-Host 'Ready. Open the exam terminal with:  .\sim.ps1 shell'
+  Write-Host "Ready. Web UI: $UiUrl   (or the terminal only:  .\sim.ps1 shell)"
 }
 
 switch ($Command) {
   'up' { Invoke-Up }
+  'ui' {
+    if (-not (Test-Terminal)) { throw "No terminal yet. Run: .\sim.ps1 up" }
+    Start-Process $UiUrl
+  }
+  'update' {
+    if (-not (Test-Terminal)) { throw "No terminal yet. Run: .\sim.ps1 up" }
+    Write-Host '==> Rebuilding the exam terminal image'
+    Invoke-Native docker build -t $Image (Join-Path $Root 'sim')
+    Start-Terminal
+    Write-Host "Updated. Web UI: $UiUrl   (your cluster, answers and progress are unchanged)"
+  }
   'shell' {
     if (-not (Test-Terminal)) { throw "No terminal yet. Run: .\sim.ps1 up" }
     docker exec -it $Terminal bash
@@ -113,7 +132,7 @@ switch ($Command) {
     Invoke-Native docker start "k3d-$Registry" | Out-Null
     Invoke-Native k3d cluster start $Cluster --wait
     if (Test-Terminal) { Invoke-Native docker start $Terminal | Out-Null } else { Start-Terminal }
-    Write-Host 'Started. Open the exam terminal with:  .\sim.ps1 shell'
+    Write-Host "Started. Web UI: $UiUrl   (or the terminal only:  .\sim.ps1 shell)"
   }
   'reset' { docker exec $Terminal /ckad/bin/ckad reset all }
   'down' {

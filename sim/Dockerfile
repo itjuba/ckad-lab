@@ -1,4 +1,22 @@
-# CKAD exam terminal: the Linux shell you practice in.
+# CKAD exam terminal: the Linux shell you practice in, plus the web UI (ckad-ui).
+
+# Web UI, stage 1: the React app
+FROM node:22-alpine AS web
+WORKDIR /web
+COPY ui/web/package.json ui/web/package-lock.json ./
+RUN npm ci --no-audit --no-fund
+COPY ui/web/ ./
+RUN npm run build
+
+# Web UI, stage 2: the Go server, with the React build embedded
+FROM golang:1.25-alpine AS server
+WORKDIR /src
+COPY ui/server/go.mod ui/server/go.sum ./
+RUN go mod download
+COPY ui/server/ ./
+COPY --from=web /web/dist ./web
+RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /ckad-ui .
+
 FROM ubuntu:24.04
 
 ARG KUBECTL_VERSION=v1.37.1
@@ -26,6 +44,9 @@ RUN mkdir -p /usr/local/lib/docker/cli-plugins \
 # Local Helm chart repository served on http://localhost:8879 (see entrypoint.sh)
 COPY terminal/build-charts.sh /tmp/build-charts.sh
 RUN bash /tmp/build-charts.sh /srv/charts && rm /tmp/build-charts.sh
+
+# Web UI on http://localhost:8090 (started by entrypoint.sh)
+COPY --from=server /ckad-ui /usr/local/bin/ckad-ui
 
 # /ckad is the sim/ folder mounted from the host, so edits there are live.
 RUN echo '[ -f /ckad/terminal/bashrc ] && source /ckad/terminal/bashrc' >> /root/.bashrc

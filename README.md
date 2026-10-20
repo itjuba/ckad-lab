@@ -13,6 +13,7 @@ or the Linux Foundation.
 
 **Contents:**
 [Quick start](#quick-start) ·
+[Web UI](#web-ui) ·
 [The course](#the-course) ·
 [Learning mode](#learning-mode) ·
 [Exam mode](#exam-mode) ·
@@ -52,6 +53,30 @@ ckad next                                # the first question
 
 When you're done for the day, `exit` the terminal and run `.\sim.ps1 stop`. Next time, run
 `.\sim.ps1 start` and then `.\sim.ps1 shell`. Your progress is kept.
+
+---
+
+## Web UI
+
+Prefer a browser? After `.\sim.ps1 up`, open **http://localhost:8090**, or run `.\sim.ps1 ui`.
+It's laid out like the real exam: the question on the left, a live terminal on the right.
+
+- **Question / Lesson / Solution tabs**, with the solution revealed only when you ask.
+- **A real terminal** (xterm.js): each browser terminal is its own bash session in the same
+  exam environment as `.\sim.ps1 shell`, with the same tools, `k` alias and completion.
+- **Check** grades the question task by task (✔/✘). **Reset** restores it.
+  **Prev/Next** follow the learning path.
+- **Course drawer**: Lesson 0 and every question in learning order, with your progress.
+- **Exam mode**: start a mock exam (18 random questions, 2-hour countdown in the top bar),
+  end it to get the per-domain results, and look back at your exam history.
+- Shortcuts: `Ctrl+Enter` = Check, `Alt+←/→` = previous/next question.
+
+The UI and the `ckad` CLI share the same progress and exam state, so you can switch between
+them at any time. The UI listens on `127.0.0.1` only and refuses cross-site requests, because
+its terminal is a real shell.
+
+After pulling a new version of this repo, run `.\sim.ps1 update` to rebuild the terminal image
+with the latest UI. Your cluster, answers and progress stay as they are.
 
 ---
 
@@ -208,7 +233,9 @@ weights the total like the exam (example output):
 | Command | What it does |
 |---|---|
 | `.\sim.ps1 up` | create cluster, registry and terminal, then set up all questions |
+| `.\sim.ps1 ui` | open the web UI at http://localhost:8090 |
 | `.\sim.ps1 shell` | open the exam terminal |
+| `.\sim.ps1 update` | rebuild the terminal image (e.g. after `git pull`); keeps cluster and progress |
 | `.\sim.ps1 stop` / `start` | pause / resume everything (progress is kept) |
 | `.\sim.ps1 reset` | reset every question |
 | `.\sim.ps1 status` | show cluster and terminal state |
@@ -292,6 +319,8 @@ come with exam registration.
 | A question is in a weird state | `ckad reset <n>` |
 | Start everything over | `.\sim.ps1 reset` (questions) and `ckad progress clear` (learning progress) |
 | `ckad check` is locked | you're in exam mode: `ckad exam end` (with grading) or `ckad exam abort` |
+| http://localhost:8090 doesn't load | `.\sim.ps1 update` (older terminals don't publish the port). The server log is `/tmp/ckad-ui.log` in the terminal |
+| The browser terminal says "Disconnected" | click Reconnect. Each session is a fresh shell; your cluster work is kept |
 | Something is badly broken | `.\sim.ps1 down`, then `.\sim.ps1 up` |
 
 ---
@@ -309,6 +338,7 @@ ckad-lab/
     ├── bin/ckad            the question runner
     ├── lib/common.sh       helpers for setup/check/solve scripts
     ├── terminal/           bashrc, entrypoint, local Helm chart repo
+    ├── ui/                 web UI: Go server (ui/server), React app (ui/web), API.md
     ├── course/             Lesson 0 (fundamentals)
     └── questions/qNN/      one folder per question (question, lesson, solution, grader)
 ```
