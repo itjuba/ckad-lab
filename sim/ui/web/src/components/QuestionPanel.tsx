@@ -97,7 +97,7 @@ export function QuestionPanel(p: Props) {
     ) : p.question === null ? (
       <Loading what="the question" />
     ) : (
-      <Markdown text={p.question.markdown} />
+      <Markdown text={p.question.markdown} copyInline />
     )
   }
 

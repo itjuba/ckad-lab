@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 import type { Course, Mode } from '../api'
 import type { View } from './QuestionPanel'
 
@@ -26,13 +26,20 @@ export function CourseDrawer(p: Props) {
     return () => window.removeEventListener('keydown', onKey)
   }, [p.open, p.onClose])
 
+  // While closed (slid off screen) the drawer must not take focus or clicks. React 18 has
+  // no `inert` prop, so it's set on the element directly.
+  const asideRef = useRef<HTMLElement>(null)
+  useEffect(() => {
+    asideRef.current?.toggleAttribute('inert', !p.open)
+  }, [p.open])
+
   const isCurrent = (n: number) => p.current.kind === 'question' && p.current.n === n
   const inExam = p.mode === 'exam'
 
   return (
     <>
       <div className={p.open ? 'drawer-backdrop open' : 'drawer-backdrop'} onClick={p.onClose} />
-      <aside className={p.open ? 'drawer open' : 'drawer'} aria-hidden={!p.open} aria-label="Course">
+      <aside ref={asideRef} className={p.open ? 'drawer open' : 'drawer'} aria-hidden={!p.open} aria-label="Course">
         <div className="drawer-head">
           <h2>{inExam ? 'Exam questions' : 'Course'}</h2>
           <button type="button" className="icon-btn" onClick={p.onClose} aria-label="Close">

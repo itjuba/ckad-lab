@@ -310,7 +310,7 @@ func (a *App) handleExamEnd(w http.ResponseWriter, r *http.Request) {
 	})
 
 	// Same weighting as the CLI: each domain's task ratio times its exam weight.
-	var doms []domainResult
+	doms := []domainResult{} // [] not null in the JSON, even when nothing could be graded
 	weighted, wsum := 0, 0
 	for _, d := range domainOrder {
 		dr := domainResult{Code: d, Name: domains[d].Name, Short: domains[d].Short, Weight: domains[d].Weight}

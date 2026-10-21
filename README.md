@@ -69,7 +69,12 @@ It's laid out like the real exam: the question on the left, a live terminal on t
 - **Course drawer**: Lesson 0 and every question in learning order, with your progress.
 - **Exam mode**: start a mock exam (18 random questions, 2-hour countdown in the top bar),
   end it to get the per-domain results, and look back at your exam history.
+- **One-click copy, like the exam**: click a name or path in the question (anything in
+  `code` style) to copy it, then paste it in the terminal with `Ctrl+Shift+V`. Copying avoids
+  the typos that cost points.
 - Shortcuts: `Ctrl+Enter` = Check, `Alt+←/→` = previous/next question.
+- **Black and white**: black by default, white with the ☀/☾ toggle (remembered). The terminal
+  stays black in both, like the exam's. The only colors are ✔/✘ results and timer warnings.
 
 The UI and the `ckad` CLI share the same progress and exam state, so you can switch between
 them at any time. The UI listens on `127.0.0.1` only and refuses cross-site requests, because
@@ -338,7 +343,8 @@ ckad-lab/
     ├── bin/ckad            the question runner
     ├── lib/common.sh       helpers for setup/check/solve scripts
     ├── terminal/           bashrc, entrypoint, local Helm chart repo
-    ├── ui/                 web UI: Go server (ui/server), React app (ui/web), API.md
+    ├── ui/                 web UI: Go server (ui/server), React app (ui/web), API.md,
+    │                       Playwright tests (ui/web/tests)
     ├── course/             Lesson 0 (fundamentals)
     └── questions/qNN/      one folder per question (question, lesson, solution, grader)
 ```
@@ -363,3 +369,26 @@ Helpers live in `sim/lib/common.sh`. `ckad selftest NN` runs setup → check →
 fails unless the question starts at 0 and ends with full marks. Ground rules: state everything
 the grader checks in the question, accept every valid approach, and don't give points for work
 that hasn't been done.
+
+---
+
+## Testing the web UI
+
+Playwright tests live in `sim/ui/web/tests`. One-time setup:
+
+```powershell
+cd sim\ui\web
+npm install
+npx playwright install chromium
+```
+
+| Command | What it tests |
+|---|---|
+| `npm run test:mock` | The React app (a production build) against a fake API and terminal: navigation, tabs, Check/Reset, exam start/end/abort, timer, history, terminal I/O and reconnect, theme, layout, and WCAG 2.1 AA accessibility (axe, including contrast) in both themes. No cluster needed; runs in CI on every push. |
+| `npm run test:live` | Your running simulator on http://127.0.0.1:8090 (`CKAD_UI_URL` to change it): every question, lesson and solution loads, the security guards (cross-site requests, foreign Host headers, terminal origin), a real shell running `kubectl`, and grading. Skipped when the simulator isn't up. |
+| `npm test` | Both. |
+| `npm run test:report` | Opens the HTML report (with traces of failed tests). |
+
+The live tests are read-only: they never reset a question or start an exam. The one thing that
+can change is Check: it grades the current question, so a question you've fully solved gets
+recorded as passed, as if you had pressed Check yourself.

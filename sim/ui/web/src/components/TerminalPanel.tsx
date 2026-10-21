@@ -7,12 +7,14 @@ import { useStored } from '../hooks'
 
 const FONT = '"JetBrains Mono", "Cascadia Code", "Fira Code", Menlo, Consolas, "DejaVu Sans Mono", monospace'
 
+// Black and white like the rest of the UI; the ANSI colors stay so ls, vim and kubectl
+// output keep their meaning.
 const THEME = {
-  background: '#0d1117',
-  foreground: '#e6edf3',
-  cursor: '#58a6ff',
-  cursorAccent: '#0d1117',
-  selectionBackground: '#264f78',
+  background: '#000000',
+  foreground: '#ededed',
+  cursor: '#ffffff',
+  cursorAccent: '#000000',
+  selectionBackground: 'rgba(255, 255, 255, 0.3)',
   black: '#484f58',
   red: '#ff7b72',
   green: '#3fb950',

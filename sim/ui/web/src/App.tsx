@@ -61,9 +61,16 @@ export default function App() {
   }, [theme])
 
   // ---- loading and polling ------------------------------------------------------------
+  // The course is static: it's loaded once, on the first poll that reaches the server, so
+  // the page recovers on its own when it was opened while the simulator was down.
+  const courseLoaded = useRef(false)
   const refreshState = useCallback(async () => {
     try {
       const s = await api.state()
+      if (!courseLoaded.current) {
+        setCourse(await api.course())
+        courseLoaded.current = true
+      }
       setState(s)
       setStateError(null)
       return s
@@ -75,10 +82,6 @@ export default function App() {
 
   useEffect(() => {
     void refreshState()
-    api
-      .course()
-      .then(setCourse)
-      .catch((e) => setStateError(errorMessage(e)))
     const id = window.setInterval(() => void refreshState(), 10_000)
     return () => window.clearInterval(id)
   }, [refreshState])
