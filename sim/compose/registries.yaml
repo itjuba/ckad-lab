@@ -1,0 +1,6 @@
+# k3s registry config for Docker Compose (sim.ps1 writes the same file for k3d):
+# pods pull localhost:5000/<image> from the registry service.
+mirrors:
+  "localhost:5000":
+    endpoint:
+      - http://k3d-ckad-registry:5000

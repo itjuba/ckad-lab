@@ -44,6 +44,10 @@ export function StartExamDialog({ busy, error, onStart, onCancel }: StartProps) 
         <li>
           <strong>No grading, lessons or solutions</strong> until you end the exam, like the real thing.
         </li>
+        <li>
+          Each question names its <strong>context</strong> and its <strong>task weight</strong>. Switch context first;
+          the score counts each question by its weight, with partial credit per task.
+        </li>
         <li>The picked questions are reset first, which deletes your work on them.</li>
       </ul>
       <label className="checkbox">
@@ -58,6 +62,7 @@ export function StartExamDialog({ busy, error, onStart, onCancel }: StartProps) 
 
 export function ExamResultsModal({ result, onClose }: { result: ExamResult; onClose: () => void }) {
   const [open, setOpen] = useState<number | null>(null)
+  const totalWeight = result.questions.reduce((sum, q) => sum + (q.weight ?? 0), 0)
   return (
     <Modal
       title="Mock exam results"
@@ -65,7 +70,7 @@ export function ExamResultsModal({ result, onClose }: { result: ExamResult; onCl
       wide
       footer={
         <button type="button" className="btn primary" onClick={onClose}>
-          Back to learning mode
+          Back to practice mode
         </button>
       }
     >
@@ -118,6 +123,11 @@ export function ExamResultsModal({ result, onClose }: { result: ExamResult; onCl
                 <span className="grow">
                   Q{q.n} {q.title}
                 </span>
+                {totalWeight > 0 && (
+                  <span className="muted" title="Task weight">
+                    {Math.round(((q.weight ?? 0) * 100) / totalWeight)}%
+                  </span>
+                )}
                 <span className="num">
                   {q.pass}/{q.total}
                 </span>
@@ -137,7 +147,10 @@ export function ExamResultsModal({ result, onClose }: { result: ExamResult; onCl
           )
         })}
       </ul>
-      <p className="muted">Solutions and lessons are unlocked again in learning mode.</p>
+      <p className="muted">
+        Scored like the exam: each question by its task weight, with partial credit per task. Solutions and lessons are
+        unlocked again in practice mode.
+      </p>
     </Modal>
   )
 }

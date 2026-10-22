@@ -3,6 +3,9 @@
 export CKAD_HOME=${CKAD_HOME:-/ckad}
 QDIR=$CKAD_HOME/questions
 PATH_FILE=$CKAD_HOME/learning-path
+CONTEXTS_FILE=$CKAD_HOME/contexts
+# One kubeconfig per context, pinned to it (written by terminal/kubeconfig.sh at start).
+KUBE_DIR=${CKAD_KUBE_DIR:-/run/ckad/kube}
 LOGDIR=/tmp/ckad-logs
 # Mode, progress and exam timer live next to the answers, so they survive restarts.
 STATE=${CKAD_STATE:-/opt/course/.ckad}
@@ -27,7 +30,7 @@ usage() {
   cat <<'EOF'
 Usage: ckad <command> [question]
 
-Learning mode (default): follow the learning path, basics first
+Practice mode (default): follow the learning path, basics first
   course               the course outline: lesson 0, then every lesson in learning order
   explain 0            lesson 0: Kubernetes & kubectl fundamentals (start here)
   next                 show the next question you haven't passed yet
@@ -43,9 +46,13 @@ Exam mode: a 2-hour mock exam, no grading or solutions until the end
   exam start           pick 18 random questions, reset them, start the timer
   exam start --keep    same, without resetting them
   exam                 time left
-  exam end             grade everything, show the final score, back to learning mode
+  flag <n>             flag question n for review (again to unflag); ckad list shows flags
+  exam end             grade everything, show the final score, back to practice mode
   exam abort           stop without grading
   exam history         your past exam scores
+
+Every question names its context (kubectl config use-context <name>) and its task weight,
+like the real exam. Grading runs in the question's context, whatever your current one is.
 EOF
 }
 
@@ -53,6 +60,11 @@ qdir() { printf '%s/q%02d' "$QDIR" "$((10#$1))"; }
 ids() { for d in "$QDIR"/q*/; do basename "$d" | sed 's/^q0*//'; done; }
 title() { head -1 "$(qdir "$1")/question.md" | sed 's/^# *//'; }
 domain() { tr -d '[:space:]' <"$(qdir "$1")/domain" 2>/dev/null; }
+# weight N : the question's task weight (its share of an exam, in points; ~100 per exam).
+weight() { local w; w=$(tr -d '[:space:]' <"$(qdir "$1")/weight" 2>/dev/null); echo "${w:-4}"; }
+contexts() { grep -Eo '^[A-Za-z0-9_.-]+' "$CONTEXTS_FILE" 2>/dev/null; }
+# context_of N : the context the question is set up and graded in (default: the first one).
+context_of() { local c; c=$(tr -d '[:space:]' <"$(qdir "$1")/context" 2>/dev/null); echo "${c:-$(contexts | head -1)}"; }
 need() {
   [[ $1 =~ ^[0-9]+$ ]] && [ -d "$(qdir "$1")" ] && return
   echo "No such question: ${1:-<missing>}  (try: ckad list)" >&2
@@ -60,11 +72,14 @@ need() {
 }
 ok() { printf '\e[32m✔\e[0m'; }
 ko() { printf '\e[31m✘\e[0m'; }
+# pct NUM DEN : NUM/DEN as a rounded percentage.
+pct() { echo $(( $2 > 0 ? (200 * $1 / $2 + 1) / 2 : 0 )); }
 
 mode() { cat "$STATE/mode" 2>/dev/null || echo learn; }
 in_exam() { [ "$(mode)" = exam ]; }
 passed() { grep -qx "$1" "$STATE/passed" 2>/dev/null; }
 mark_passed() { passed "$1" || echo "$1" >>"$STATE/passed"; }
+flagged() { grep -qx "$1" "$STATE/exam-flags" 2>/dev/null; }
 path_ids() {
   local n
   for n in $(grep -E '^[0-9]+[[:space:]]*$' "$PATH_FILE" | tr -d ' \t\r'); do
@@ -76,6 +91,8 @@ next_id() {
   for n in $(path_ids); do passed "$n" || { echo "$n"; return; }; done
 }
 step_of() { path_ids | grep -nx "$1" | cut -d: -f1; }
+exam_ids() { cat "$STATE/exam-questions" 2>/dev/null; }
+exam_pos() { exam_ids | grep -nx "$1" | cut -d: -f1; }
 exam_left() { echo $(($(cat "$STATE/exam-start") + EXAM_SECONDS - $(date +%s))); }
 fmt_time() {
   local s=$1
@@ -86,19 +103,35 @@ exam_only_at_end() {
   echo "Exam mode: no $1 until the end, like the real exam. Finish with: ckad exam end" >&2
   exit 1
 }
+# weight_sum N... : total weight of the given questions.
+weight_sum() { local n s=0; for n in "$@"; do s=$((s + $(weight "$n"))); done; echo "$s"; }
+# task_weight N : what the question header shows. In an exam it's the exact share of that
+# exam; in practice the weight itself, which is about its share of an 18-question exam.
+task_weight() {
+  if in_exam; then pct "$(weight "$1")" "$(weight_sum $(exam_ids))"; else weight "$1"; fi
+}
+
+# run_script N NAME : run a question script in the question's own context, whatever
+# context the candidate switched to. Without the pinned kubeconfigs (old terminal image),
+# it runs with the candidate's kubeconfig, like before.
+run_script() {
+  local kc
+  kc=$KUBE_DIR/$(context_of "$1")
+  if [ -f "$kc" ]; then KUBECONFIG=$kc bash "$(qdir "$1")/$2"; else bash "$(qdir "$1")/$2"; fi
+}
 
 # score N [quiet] : run check.sh, print task lines (unless quiet), set SCORE_PASS/SCORE_TOTAL.
 score() {
   local out
-  out=$(bash "$(qdir "$1")/check.sh" 2>/dev/null)
+  out=$(run_script "$1" check.sh 2>/dev/null)
   read -r _ SCORE_PASS SCORE_TOTAL <<<"$(grep '^RESULT ' <<<"$out" | tail -1)"
   SCORE_PASS=${SCORE_PASS:-0} SCORE_TOTAL=${SCORE_TOTAL:-0}
   [ -z "$2" ] && grep -v '^RESULT ' <<<"$out"
 }
 
 setup_one() {
-  if bash "$(qdir "$1")/setup.sh" >"$LOGDIR/setup-$1.log" 2>&1; then
-    printf '  %s Q%-3s ready\n' "$(ok)" "$1"
+  if run_script "$1" setup.sh >"$LOGDIR/setup-$1.log" 2>&1; then
+    printf '  %s Q%-3s ready (%s)\n' "$(ok)" "$1" "$(context_of "$1")"
   else
     printf '  %s Q%-3s setup failed, see %s\n' "$(ko)" "$1" "$LOGDIR/setup-$1.log"
     return 1
@@ -110,17 +143,20 @@ reset_all() {
   ids | xargs -P 6 -I{} "$0" _setup {}
 }
 
+# Like the real exam's question page: the context to use, then the task weight.
 show_question() {
-  local d
+  local d flag=
   d=$(domain "$1")
   echo
   if in_exam; then
-    printf '\e[2mQuestion %s · %s (%s%% of the exam) · exam time left %s\e[0m\n\n' \
-      "$1" "${DNAME[$d]}" "${DWEIGHT[$d]}" "$(fmt_time "$(exam_left)")"
+    flagged "$1" && flag=' · ⚑ flagged for review'
+    printf '\e[2mQuestion %s of %s · Q%s · Task weight: %s%% · time left %s%s\e[0m\n' \
+      "$(exam_pos "$1")" "$(exam_ids | wc -l)" "$1" "$(task_weight "$1")" "$(fmt_time "$(exam_left)")" "$flag"
   else
-    printf '\e[2mLearning step %s of %s · Question %s · %s (%s%% of the exam)\e[0m\n\n' \
-      "$(step_of "$1")" "$(path_ids | wc -l)" "$1" "${DNAME[$d]}" "${DWEIGHT[$d]}"
+    printf '\e[2mPractice step %s of %s · Q%s · %s · Task weight: %s%%\e[0m\n' \
+      "$(step_of "$1")" "$(path_ids | wc -l)" "$1" "${DNAME[$d]}" "$(task_weight "$1")"
   fi
+  printf 'Set configuration context:  \e[1mkubectl config use-context %s\e[0m\n\n' "$(context_of "$1")"
   cat "$(qdir "$1")/question.md"
   echo
   if ! in_exam; then
@@ -128,39 +164,43 @@ show_question() {
   fi
 }
 
-# check_all [N...] : grade the given questions (default all), grouped by domain, weighted total.
+# check_all [N...] : grade the given questions (default all), grouped by domain. Like the
+# exam, each question counts with its task weight and gives partial credit per task; the
+# domain table shows each domain's share of the weight.
 check_all() {
-  local n d pass=0 total=0 weighted=0 wsum=0 list
+  local n d w list wsum earned=0 pass=0 total=0
   list=${*:-$(ids)}
-  declare -A dp dt
+  wsum=$(weight_sum $list)
+  declare -A dw de dp dt  # per domain: weight, earned (in 1/1000 weight points), tasks passed/total
   for d in "${DOMAINS[@]}"; do
-    dp[$d]=0 dt[$d]=0
+    dw[$d]=0 de[$d]=0 dp[$d]=0 dt[$d]=0
     grep -qx "$d" <<<"$(for n in $list; do domain "$n"; echo; done)" || continue
     echo
-    printf '  \e[1m%s (%s%%)\e[0m\n' "${DNAME[$d]}" "${DWEIGHT[$d]}"
+    printf '  \e[1m%s\e[0m\n' "${DNAME[$d]}"
     for n in $list; do
       [ "$(domain "$n")" = "$d" ] || continue
       score "$n" quiet
-      dp[$d]=$((dp[$d] + SCORE_PASS)) dt[$d]=$((dt[$d] + SCORE_TOTAL))
-      if [ "$SCORE_PASS" = "$SCORE_TOTAL" ]; then mark=$(ok); else mark=$(ko); fi
-      printf '    %s Q%-3s %-54s %2s/%-2s\n' "$mark" "$n" "$(title "$n" | cut -c1-54)" "$SCORE_PASS" "$SCORE_TOTAL"
+      w=$(weight "$n")
+      dw[$d]=$((dw[$d] + w)) dp[$d]=$((dp[$d] + SCORE_PASS)) dt[$d]=$((dt[$d] + SCORE_TOTAL))
+      [ "$SCORE_TOTAL" -gt 0 ] && de[$d]=$((de[$d] + w * 1000 * SCORE_PASS / SCORE_TOTAL))
+      if [ "$SCORE_TOTAL" -gt 0 ] && [ "$SCORE_PASS" = "$SCORE_TOTAL" ]; then mark=$(ok); else mark=$(ko); fi
+      printf '    %s Q%-3s %-50s %2s/%-2s  weight %2s%%\n' "$mark" "$n" "$(title "$n" | cut -c1-50)" \
+        "$SCORE_PASS" "$SCORE_TOTAL" "$(task_weight "$n")"
     done
   done
 
   echo
   printf '  \e[1m%-24s %7s %9s %6s\e[0m\n' "Domain" "Weight" "Tasks" "Score"
   for d in "${DOMAINS[@]}"; do
-    [ "${dt[$d]}" -gt 0 ] || continue
-    pct=$((dp[$d] * 100 / dt[$d]))
-    printf '  %-24s %6s%% %4s/%-4s %5s%%\n' "${DSHORT[$d]}" "${DWEIGHT[$d]}" "${dp[$d]}" "${dt[$d]}" "$pct"
-    pass=$((pass + dp[$d])) total=$((total + dt[$d]))
-    weighted=$((weighted + DWEIGHT[$d] * dp[$d] * 1000 / dt[$d]))
-    wsum=$((wsum + DWEIGHT[$d]))
+    [ "${dw[$d]}" -gt 0 ] || continue
+    printf '  %-24s %6s%% %4s/%-4s %5s%%\n' "${DSHORT[$d]}" "$(pct "${dw[$d]}" "$wsum")" "${dp[$d]}" "${dt[$d]}" \
+      "$(pct "${de[$d]}" $((dw[$d] * 1000)))"
+    earned=$((earned + de[$d])) pass=$((pass + dp[$d])) total=$((total + dt[$d]))
   done
-  final=$((wsum ? weighted / wsum / 10 : 0))
+  final=$(pct "$earned" $((wsum * 1000)))
   echo
   if [ "$final" -ge 66 ]; then verdict="$(ok) PASS"; else verdict="$(ko) not yet"; fi
-  printf '  Exam-weighted score: \e[1m%s%%\e[0m  %s  (pass mark 66%%; %s/%s tasks overall)\n' \
+  printf '  Score: \e[1m%s%%\e[0m  %s  (pass mark 66%%; %s/%s tasks, weighted by task)\n' \
     "$final" "$verdict" "$pass" "$total"
 }
 
@@ -179,7 +219,7 @@ list_learning() {
       n=${line//[[:space:]]/}
       [ -d "$(qdir "$n")" ] || continue
       if passed "$n"; then mark=$(ok); elif [ "$n" = "$(next_id)" ]; then mark='\e[33m▶\e[0m'; else mark=' '; fi
-      printf "    $mark %3s  %-54s %s\n" "$n" "$(title "$n" | cut -c1-54)" "${DSHORT[$(domain "$n")]}"
+      printf "    $mark %3s  %-50s %-18s %s\n" "$n" "$(title "$n" | cut -c1-50)" "${DSHORT[$(domain "$n")]}" "$(context_of "$n")"
     fi
   done <"$PATH_FILE"
 }
@@ -212,18 +252,17 @@ EOF
   echo
 }
 
-exam_ids() { cat "$STATE/exam-questions" 2>/dev/null; }
-
 list_exam() {
-  local i=0 n
+  local i=0 n mark
   printf '\n  \e[1mMock exam\e[0m  ·  %s questions  ·  time left %s  ·  finish with: ckad exam end\n\n' \
     "$(exam_ids | wc -l)" "$(fmt_time "$(exam_left)")"
   for n in $(exam_ids); do
     i=$((i + 1))
-    printf '  %2s.  Q%-3s %-54s %s\n' "$i" "$n" "$(title "$n" | cut -c1-54)" "${DSHORT[$(domain "$n")]}"
+    if flagged "$n"; then mark='\e[33m⚑\e[0m'; else mark=' '; fi
+    printf "  %2s. $mark Q%-3s %-46s %3s%%  %s\n" "$i" "$n" "$(title "$n" | cut -c1-46)" "$(task_weight "$n")" "$(context_of "$n")"
   done
   echo
-  echo "  Read one with: ckad q <Q number>"
+  echo "  Read one with: ckad q <Q number>   ·   flag one for review: ckad flag <Q number>"
 }
 
 cmd_exam() {
@@ -245,12 +284,14 @@ cmd_exam() {
         xargs -P 6 -I{} "$0" _setup {} <<<"$picked"
       fi
       echo "$picked" >"$STATE/exam-questions"
+      rm -f "$STATE/exam-flags"
       echo exam >"$STATE/mode"
       date +%s >"$STATE/exam-start"
       list_exam
       cat <<EOF
 
   Mock exam started: 2 hours. Your prompt shows the time left.
+  Each question names its context: switch with kubectl config use-context <name> first.
   No grading or solutions until: ckad exam end
 
 EOF
@@ -259,7 +300,7 @@ EOF
       if in_exam; then
         echo "Exam running: $(fmt_time "$(exam_left)") left. Finish with: ckad exam end"
       else
-        echo "Learning mode. Start a mock exam with: ckad exam start"
+        echo "Practice mode. Start a mock exam with: ckad exam start"
       fi
       ;;
     end)
@@ -269,13 +310,13 @@ EOF
       check_all $(exam_ids)
       printf '%s  %s%%  time used %s  questions: %s\n' "$(date '+%Y-%m-%d %H:%M')" "$final" "$(fmt_time "$used")" \
         "$(exam_ids | tr '\n' ' ')" >>"$STATE/exam-history"
-      rm -f "$STATE/mode" "$STATE/exam-start" "$STATE/exam-questions"
+      rm -f "$STATE/mode" "$STATE/exam-start" "$STATE/exam-questions" "$STATE/exam-flags"
       echo
-      echo "  Back in learning mode. Solutions are unlocked: ckad solution <n>"
+      echo "  Back in practice mode. Solutions are unlocked: ckad solution <n>"
       ;;
     abort)
-      rm -f "$STATE/mode" "$STATE/exam-start" "$STATE/exam-questions"
-      echo "Exam stopped without grading. Back in learning mode."
+      rm -f "$STATE/mode" "$STATE/exam-start" "$STATE/exam-questions" "$STATE/exam-flags"
+      echo "Exam stopped without grading. Back in practice mode."
       ;;
     history)
       if [ -s "$STATE/exam-history" ]; then cat "$STATE/exam-history"; else echo "No exams taken yet."; fi
@@ -328,6 +369,7 @@ case $cmd in
     in_exam && exam_only_at_end "solutions"
     need "$1"
     echo
+    printf 'Context first:  \e[1mkubectl config use-context %s\e[0m\n\n' "$(context_of "$1")"
     cat "$(qdir "$1")/solution.md"
     echo
     ;;
@@ -335,7 +377,7 @@ case $cmd in
     in_exam && exam_only_at_end "grading"
     if [ -n "$1" ]; then
       need "$1"
-      echo "Q$1  $(title "$1")"
+      echo "Q$1  $(title "$1")  (graded in context $(context_of "$1"))"
       score "$1"
       printf '  %s/%s tasks\n' "$SCORE_PASS" "$SCORE_TOTAL"
       if [ "$SCORE_TOTAL" -gt 0 ] && [ "$SCORE_PASS" = "$SCORE_TOTAL" ]; then
@@ -345,6 +387,19 @@ case $cmd in
       fi
     else
       check_all
+    fi
+    ;;
+  flag)
+    in_exam || { echo "Flags are for exams: start one with ckad exam start. In practice, ckad list shows what you passed."; exit 1; }
+    need "$1"
+    exam_ids | grep -qx "$1" || { echo "Q$1 is not part of this exam (ckad list)."; exit 1; }
+    if flagged "$1"; then
+      grep -vx "$1" "$STATE/exam-flags" >"$STATE/exam-flags.tmp" || true
+      mv "$STATE/exam-flags.tmp" "$STATE/exam-flags"
+      echo "Q$1: flag removed."
+    else
+      echo "$1" >>"$STATE/exam-flags"
+      echo "Q$1 flagged for review (ckad list shows ⚑; ckad flag $1 removes it)."
     fi
     ;;
   reset | setup)
@@ -382,7 +437,7 @@ case $cmd in
       setup_one "$n" >/dev/null || { printf '  %s Q%-3s setup failed\n' "$(ko)" "$n"; failed=1; continue; }
       score "$n" quiet
       before="$SCORE_PASS/$SCORE_TOTAL"
-      bash "$(qdir "$n")/solve.sh" >"$LOGDIR/solve-$n.log" 2>&1
+      run_script "$n" solve.sh >"$LOGDIR/solve-$n.log" 2>&1
       score "$n" quiet
       if [ "$SCORE_PASS" = "$SCORE_TOTAL" ] && [ "${before%%/*}" -lt "$SCORE_TOTAL" ]; then
         printf '  %s Q%-3s before %-6s after %s/%s\n' "$(ok)" "$n" "$before" "$SCORE_PASS" "$SCORE_TOTAL"

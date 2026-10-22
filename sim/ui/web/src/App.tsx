@@ -105,6 +105,26 @@ export default function App() {
   )
   const order = inExam ? state?.examQuestions ?? [] : learningOrder
   const passed = useMemo(() => new Set(state?.passed ?? []), [state?.passed])
+  const flags = useMemo(() => new Set(state?.flags ?? []), [state?.flags])
+
+  // Task weights, like the exam shows them: during an exam, each question's exact share of
+  // that exam; in practice, the weight itself (about its share of an 18-question exam).
+  const weights = useMemo(() => {
+    const m = new Map<number, number>()
+    course?.sections.forEach((s) => s.questions.forEach((q) => m.set(q.n, q.weight)))
+    return m
+  }, [course])
+  const examQuestions = state?.examQuestions
+  const weightPct = useCallback(
+    (n: number): number | null => {
+      const w = weights.get(n)
+      if (w === undefined) return null
+      if (!inExam) return w
+      const total = (examQuestions ?? []).reduce((sum, x) => sum + (weights.get(x) ?? 0), 0)
+      return total > 0 ? Math.round((w * 100) / total) : null
+    },
+    [weights, inExam, examQuestions],
+  )
 
   // ---- navigation ---------------------------------------------------------------------
   const openQuestion = useCallback(
@@ -296,6 +316,16 @@ export default function App() {
     }
   }, [refreshState])
 
+  const toggleFlag = useCallback(async () => {
+    if (currentN === null || !inExam) return
+    const n = currentN
+    try {
+      setState(await api.flag(n, !flags.has(n)))
+    } catch (e) {
+      setToast(errorMessage(e))
+    }
+  }, [currentN, inExam, flags])
+
   const abortExam = useCallback(async () => {
     setAbortBusy(true)
     try {
@@ -431,6 +461,9 @@ export default function App() {
               question={q}
               questionError={currentN !== null ? questionErrors[currentN] ?? null : null}
               domain={domain}
+              weightPct={currentN !== null ? weightPct(currentN) : null}
+              flagged={currentN !== null && flags.has(currentN)}
+              onToggleFlag={inExam && currentN !== null ? () => void toggleFlag() : null}
               examIndex={examIndex >= 0 ? examIndex : null}
               examCount={state?.examQuestions.length ?? 0}
               tab={tab}
@@ -481,6 +514,8 @@ export default function App() {
         passed={passed}
         next={state?.next ?? null}
         examQuestions={state?.examQuestions ?? []}
+        flags={flags}
+        weightPct={weightPct}
         titles={titles}
         current={view ?? { kind: 'lesson0' }}
         onOpenQuestion={openQuestion}

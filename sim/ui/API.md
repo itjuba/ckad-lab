@@ -16,6 +16,7 @@ return **403** `{"error": "Exam mode: ... until the end"}`.
   "examStartedAt": null,        // unix seconds when the exam started, or null
   "examSeconds": 7200,          // exam length
   "examQuestions": [],          // question numbers of the running exam, in exam order
+  "flags": [],                  // exam questions flagged for review
   "passed": [1, 3],             // questions passed in learning mode
   "next": 2,                    // next unpassed question in the learning path, or null
   "total": 42                   // number of questions
@@ -34,7 +35,7 @@ return **403** `{"error": "Exam mode: ... until the end"}`.
       "questions": [
         { "n": 1, "title": "Namespace and pod inventory",
           "lesson": "Namespaces, labels, selectors and annotations",
-          "domain": "D3", "passed": true }
+          "domain": "D3", "weight": 2, "context": "ckad-c1", "passed": true }
       ]
     }
   ],
@@ -44,17 +45,23 @@ return **403** `{"error": "Exam mode: ... until the end"}`.
     "D3": { "name": "Application Observability and Maintenance", "short": "Observability", "weight": 15 },
     "D4": { "name": "Application Environment, Configuration and Security", "short": "Config & Security", "weight": 25 },
     "D5": { "name": "Services and Networking", "short": "Networking", "weight": 20 }
-  }
+  },
+  "contexts": ["ckad-c1", "ckad-c2"]
 }
 ```
 `sections` follow the learning path order. Every question appears in exactly one section.
+`weight` is the question's task weight (its share of an exam in points; an exam's 18
+questions add up to about 100), `context` the kubectl context it is set up and graded in.
 
 `GET /api/questions/{n}`
 ```json
-{ "n": 4, "title": "Helm release management", "domain": "D2",
+{ "n": 4, "title": "Helm release management", "domain": "D2", "weight": 7, "context": "ckad-c2",
   "step": 38, "steps": 42, "markdown": "# Helm release management\n..." }
 ```
 `step` is the position in the learning path (null if not in it).
+
+`POST /api/questions/{n}/flag` body `{"flag": true}` (409 outside an exam): flags or
+unflags an exam question for review, like the real exam. Returns `/api/state`.
 
 `GET /api/lessons/0` · `GET /api/questions/{n}/lesson` · `GET /api/questions/{n}/solution`
 ```json
@@ -86,12 +93,14 @@ resets them (unless keep), starts the 2-hour timer. Takes up to ~2 minutes. Retu
 {
   "score": 71, "passedExam": true, "passMark": 66, "timeUsed": 5400,
   "domains": [ { "code": "D1", "name": "Application Design and Build", "short": "Design & Build",
-                 "weight": 20, "pass": 20, "total": 30, "percent": 66 } ],
-  "questions": [ { "n": 3, "title": "Batch Job ...", "domain": "D1", "pass": 9, "total": 9,
+                 "weight": 22, "pass": 20, "total": 30, "percent": 66 } ],
+  "questions": [ { "n": 3, "title": "Batch Job ...", "domain": "D1", "weight": 6, "pass": 9, "total": 9,
                    "tasks": [ { "ok": true, "text": "..." } ] } ]
 }
 ```
-`domains` only lists domains that had questions. `score` = total weighted by domain weight.
+Scoring is the exam's: each question counts with its task weight and gives partial credit
+per task, so `score` = Σ weight × pass/total ÷ Σ weight. `domains` only lists domains that
+had questions; a domain's `weight` is its share of this exam's task weight in percent.
 
 `POST /api/exam/abort` → `{ "ok": true }`
 

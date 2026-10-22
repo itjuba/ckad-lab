@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react'
 import type { CheckResult, Domain, Mode, Question } from '../api'
-import { Markdown } from './Markdown'
+import { CopyableCode, Markdown } from './Markdown'
 import { Spinner } from './Modal'
 
 export type Tab = 'question' | 'lesson' | 'solution'
@@ -13,6 +13,11 @@ interface Props {
   question: Question | null
   questionError: string | null
   domain: Domain | undefined
+  // Task weight in percent: the exact share of the running exam, or in practice the weight
+  // itself (about its share of an 18-question exam).
+  weightPct: number | null
+  flagged: boolean
+  onToggleFlag: (() => void) | null // exam only
   examIndex: number | null
   examCount: number
   tab: Tab
@@ -49,6 +54,17 @@ function Loading({ what }: { what: string }) {
 
 function ErrorBox({ text }: { text: string }) {
   return <div className="error-box">{text}</div>
+}
+
+// Like the real exam, every question starts with the context to work in.
+function ContextLine({ context }: { context: string }) {
+  if (!context) return null
+  return (
+    <div className="context-line">
+      <span>Set configuration context:</span>
+      <CopyableCode>kubectl config use-context {context}</CopyableCode>
+    </div>
+  )
 }
 
 export function QuestionPanel(p: Props) {
@@ -88,7 +104,10 @@ export function QuestionPanel(p: Props) {
       ) : p.solutionText === null ? (
         <Loading what="the solution" />
       ) : (
-        <Markdown text={p.solutionText} />
+        <>
+          <ContextLine context={p.question?.context ?? ''} />
+          <Markdown text={p.solutionText} />
+        </>
       )
     }
   } else {
@@ -97,7 +116,10 @@ export function QuestionPanel(p: Props) {
     ) : p.question === null ? (
       <Loading what="the question" />
     ) : (
-      <Markdown text={p.question.markdown} copyInline />
+      <>
+        <ContextLine context={p.question.context} />
+        <Markdown text={p.question.markdown} copyInline />
+      </>
     )
   }
 
@@ -121,6 +143,11 @@ export function QuestionPanel(p: Props) {
                   {p.domain.short} · {p.domain.weight}%
                 </span>
               )}
+              {p.weightPct !== null && (
+                <span className="weight" title="This question's share of the exam score (partial credit per task)">
+                  Task weight: {p.weightPct}%
+                </span>
+              )}
               {inExam && p.examIndex !== null && (
                 <span className="muted">
                   Exam question {p.examIndex + 1} of {p.examCount}
@@ -130,6 +157,17 @@ export function QuestionPanel(p: Props) {
                 <span className="muted">
                   Step {p.question.step} of {p.question.steps}
                 </span>
+              )}
+              {p.onToggleFlag && (
+                <button
+                  type="button"
+                  className={p.flagged ? 'btn tiny flag on' : 'btn tiny ghost flag'}
+                  aria-pressed={p.flagged}
+                  onClick={p.onToggleFlag}
+                  title="Flag this question to come back to it later (the list shows ⚑)"
+                >
+                  ⚑ {p.flagged ? 'Flagged' : 'Flag'}
+                </button>
               )}
             </div>
           </>

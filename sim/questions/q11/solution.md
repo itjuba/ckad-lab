@@ -16,23 +16,33 @@ CMD ["sh", "/run.sh"]
 (`ROLE=unset` changed to `ROLE=auditor`. Dockerfiles have no end-of-line
 comments: a `#` after an instruction becomes part of its value.)
 
-```bash
-# one build, two tags
-docker build --build-arg BUILD=v1 -t localhost:5000/nimbus-auditor:v1 -t localhost:5000/nimbus-auditor:latest .
-docker push localhost:5000/nimbus-auditor:v1
-docker push localhost:5000/nimbus-auditor:latest
-docker image ls localhost:5000/nimbus-auditor
+The build happens on the build host, which shares `/opt/course`:
 
+```bash
+ssh ckad-build
+cd /opt/course/11/image
+# one build, two tags
+podman build --build-arg BUILD=v1 -t localhost:5000/nimbus-auditor:v1 -t localhost:5000/nimbus-auditor:latest .
+podman push localhost:5000/nimbus-auditor:v1
+podman push localhost:5000/nimbus-auditor:latest
+podman image ls localhost:5000/nimbus-auditor
+
+podman save -o /opt/course/11/nimbus-auditor-v1.tar localhost:5000/nimbus-auditor:v1
+tar -tf /opt/course/11/nimbus-auditor-v1.tar | head -3   # manifest.json, layers
+exit                                                       # back to the exam terminal
+```
+
+Then, from the terminal (the only place with `kubectl`):
+
+```bash
 k run auditor -n polaris --image=localhost:5000/nimbus-auditor:v1
 k get pod auditor -n polaris
 k logs auditor -n polaris > /opt/course/11/logs
 cat /opt/course/11/logs                # nimbus auditor role=auditor build=v1
-
-docker save localhost:5000/nimbus-auditor:v1 -o /opt/course/11/nimbus-auditor-v1.tar
-tar -tf /opt/course/11/nimbus-auditor-v1.tar | head -3   # manifest.json / index.json, layers
 ```
 
 Remember:
 - `ARG` values exist only at build time. To see one at runtime, copy it into an `ENV`, as this Dockerfile does with `ENV BUILD=$BUILD`.
-- You can repeat `-t` to give one build several tags, but each tag still needs its own `docker push`. The exam may ask you to do the same with `podman build` and `podman push`, which take the same flags.
-- `docker save -o file.tar <image>` (or `podman save -o ...`) exports an image to a file. `docker load -i file.tar` imports it again.
+- You can repeat `-t` to give one build several tags, but each tag still needs its own `podman push`. `docker build` / `docker push` take the same flags, if a task offers docker instead.
+- `podman save -o file.tar <image>` exports an image to a file (`podman load -i file.tar` imports it again). It writes where you run it: on the build host, which is why the task says to export there.
+- The shell prompt tells you where you are. Type `exit` when a task on another host is done; `kubectl` on the build host says "command not found".

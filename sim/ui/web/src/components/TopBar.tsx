@@ -34,11 +34,11 @@ export function TopBar({ state, now, theme, onToggleTheme, onCourse, onStartExam
         <span className="brand-name">CKAD Lab</span>
       </div>
       {state && (
-        <span className={inExam ? 'mode-badge exam' : 'mode-badge'}>{inExam ? 'Exam' : 'Learning'}</span>
+        <span className={inExam ? 'mode-badge exam' : 'mode-badge'}>{inExam ? 'Exam' : 'Practice'}</span>
       )}
       {timer}
       {state && !inExam && (
-        <span className="progress" title="Questions passed in learning mode">
+        <span className="progress" title="Questions passed in practice mode">
           <span className="progress-bar">
             <span style={{ width: `${(state.passed.length / Math.max(1, state.total)) * 100}%` }} />
           </span>

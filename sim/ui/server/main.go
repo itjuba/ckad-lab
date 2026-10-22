@@ -102,7 +102,7 @@ func main() {
 	app := &App{
 		home:   home,
 		state:  &State{dir: env("CKAD_STATE", "/opt/course/.ckad")},
-		runner: &Runner{home: home, logDir: "/tmp/ckad-logs"},
+		runner: &Runner{home: home, logDir: "/tmp/ckad-logs", kubeDir: env("CKAD_KUBE_DIR", "/run/ckad/kube")},
 	}
 
 	mux := http.NewServeMux()
@@ -114,6 +114,7 @@ func main() {
 	mux.HandleFunc("GET /api/questions/{n}/solution", app.handleSolution)
 	mux.HandleFunc("POST /api/questions/{n}/check", app.handleCheck)
 	mux.HandleFunc("POST /api/questions/{n}/reset", app.handleReset)
+	mux.HandleFunc("POST /api/questions/{n}/flag", app.handleFlag)
 	mux.HandleFunc("POST /api/exam/start", app.handleExamStart)
 	mux.HandleFunc("POST /api/exam/end", app.handleExamEnd)
 	mux.HandleFunc("POST /api/exam/abort", app.handleExamAbort)

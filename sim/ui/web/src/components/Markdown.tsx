@@ -94,7 +94,7 @@ function CodeBlock({ children }: { children?: ReactNode }) {
 
 // Like the real exam's question panel: one click on a name or path copies it, ready for
 // Ctrl+Shift+V in the terminal. Dragging still selects part of it for a normal Ctrl+C.
-function CopyableCode({ children }: { children?: ReactNode }) {
+export function CopyableCode({ children }: { children?: ReactNode }) {
   const ref = useRef<HTMLElement>(null)
   const [copied, copy] = useCopy()
   const copyAll = () => void copy(ref.current?.textContent ?? '')

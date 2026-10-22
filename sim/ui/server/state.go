@@ -113,13 +113,36 @@ func (s *State) StartExam(questions []int) error {
 	if err := s.write("exam-questions", strings.Join(parts, "\n")+"\n"); err != nil {
 		return err
 	}
+	s.remove("exam-flags")
 	if err := s.write("mode", "exam\n"); err != nil {
 		return err
 	}
 	return s.write("exam-start", strconv.FormatInt(time.Now().Unix(), 10)+"\n")
 }
 
-func (s *State) StopExam() { s.remove("mode", "exam-start", "exam-questions") }
+func (s *State) StopExam() { s.remove("mode", "exam-start", "exam-questions", "exam-flags") }
+
+// Flags are the exam questions marked for review (same file as `ckad flag`).
+func (s *State) Flags() []int { return ints(s.read("exam-flags")) }
+
+func (s *State) SetFlag(n int, on bool) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var kept []string
+	for _, f := range s.Flags() {
+		if f != n {
+			kept = append(kept, strconv.Itoa(f))
+		}
+	}
+	if on {
+		kept = append(kept, strconv.Itoa(n))
+	}
+	if len(kept) == 0 {
+		s.remove("exam-flags")
+		return nil
+	}
+	return s.write("exam-flags", strings.Join(kept, "\n")+"\n")
+}
 
 func (s *State) AppendHistory(line string) error {
 	f, err := os.OpenFile(s.path("exam-history"), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)

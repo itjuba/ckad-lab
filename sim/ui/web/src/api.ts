@@ -8,6 +8,7 @@ export interface State {
   examStartedAt: number | null
   examSeconds: number
   examQuestions: number[]
+  flags: number[] // exam questions flagged for review
   passed: number[]
   next: number | null
   total: number
@@ -24,6 +25,8 @@ export interface CourseQuestion {
   title: string
   lesson: string
   domain: DomainCode
+  weight: number // task weight: its share of an exam in points (~100 per exam)
+  context: string // the kubectl context it is set up and graded in
   passed: boolean
 }
 
@@ -36,12 +39,15 @@ export interface Course {
   lesson0: { title: string }
   sections: CourseSection[]
   domains: Record<string, Domain>
+  contexts: string[]
 }
 
 export interface Question {
   n: number
   title: string
   domain: DomainCode
+  weight: number
+  context: string
   step: number | null
   steps: number
   markdown: string
@@ -80,6 +86,7 @@ export interface ExamQuestionResult {
   n: number
   title: string
   domain: DomainCode
+  weight: number
   pass: number
   total: number
   tasks: Task[]
@@ -149,6 +156,7 @@ export const api = {
   solution: (n: number) => request<{ markdown: string }>(`/api/questions/${n}/solution`),
   check: (n: number) => post<CheckResult>(`/api/questions/${n}/check`),
   reset: (n: number) => post<ResetResult>(`/api/questions/${n}/reset`),
+  flag: (n: number, flag: boolean) => post<State>(`/api/questions/${n}/flag`, { flag }),
   examStart: (keep: boolean) => post<State>('/api/exam/start', { keep }),
   examEnd: () => post<ExamResult>('/api/exam/end'),
   examAbort: () => post<{ ok: boolean }>('/api/exam/abort'),

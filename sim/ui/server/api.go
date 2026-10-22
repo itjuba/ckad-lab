@@ -77,11 +77,16 @@ func (a *App) stateJSON(c *Course) map[string]any {
 	if exam == nil {
 		exam = []int{}
 	}
+	flags := a.state.Flags()
+	if flags == nil {
+		flags = []int{}
+	}
 	return map[string]any{
 		"mode":          a.state.Mode(),
 		"examStartedAt": a.state.ExamStartedAt(),
 		"examSeconds":   examSeconds,
 		"examQuestions": exam,
+		"flags":         flags,
 		"passed":        passed,
 		"next":          a.state.Next(c),
 		"total":         len(c.Questions),
@@ -100,11 +105,13 @@ func (a *App) handleCourse(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	type item struct {
-		N      int    `json:"n"`
-		Title  string `json:"title"`
-		Lesson string `json:"lesson"`
-		Domain string `json:"domain"`
-		Passed bool   `json:"passed"`
+		N       int    `json:"n"`
+		Title   string `json:"title"`
+		Lesson  string `json:"lesson"`
+		Domain  string `json:"domain"`
+		Weight  int    `json:"weight"`
+		Context string `json:"context"`
+		Passed  bool   `json:"passed"`
 	}
 	type section struct {
 		Title     string `json:"title"`
@@ -115,7 +122,7 @@ func (a *App) handleCourse(w http.ResponseWriter, r *http.Request) {
 		sec := section{Title: s.Title, Questions: []item{}}
 		for _, n := range s.Questions {
 			q := c.Questions[n]
-			sec.Questions = append(sec.Questions, item{n, q.Title, q.Lesson, q.Domain, a.state.IsPassed(n)})
+			sec.Questions = append(sec.Questions, item{n, q.Title, q.Lesson, q.Domain, q.Weight, q.Context, a.state.IsPassed(n)})
 		}
 		sections = append(sections, sec)
 	}
@@ -123,10 +130,15 @@ func (a *App) handleCourse(w http.ResponseWriter, r *http.Request) {
 	if i := strings.Index(lesson0, ":"); i >= 0 {
 		lesson0 = strings.TrimSpace(lesson0[i+1:])
 	}
+	contexts := c.Contexts
+	if contexts == nil {
+		contexts = []string{}
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"lesson0":  map[string]string{"title": lesson0},
 		"sections": sections,
 		"domains":  domains,
+		"contexts": contexts,
 	})
 }
 
@@ -145,9 +157,30 @@ func (a *App) handleQuestion(w http.ResponseWriter, r *http.Request) {
 		step = s
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"n": q.N, "title": q.Title, "domain": q.Domain,
+		"n": q.N, "title": q.Title, "domain": q.Domain, "weight": q.Weight, "context": q.Context,
 		"step": step, "steps": len(c.Path), "markdown": string(md),
 	})
+}
+
+// handleFlag marks or unmarks an exam question for review, like the real exam's flag.
+func (a *App) handleFlag(w http.ResponseWriter, r *http.Request) {
+	c, q, ok := a.questionFromPath(w, r)
+	if !ok {
+		return
+	}
+	if !a.state.InExam() {
+		fail(w, http.StatusConflict, "flags are for exams: no exam is running")
+		return
+	}
+	var body struct {
+		Flag bool `json:"flag"`
+	}
+	json.NewDecoder(r.Body).Decode(&body)
+	if err := a.state.SetFlag(q.N, body.Flag); err != nil {
+		fail(w, http.StatusInternalServerError, "can't save the flag: %v", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, a.stateJSON(c))
 }
 
 func (a *App) serveMarkdown(w http.ResponseWriter, path, what string) {
@@ -267,10 +300,18 @@ type domainResult struct {
 	Code    string `json:"code"`
 	Name    string `json:"name"`
 	Short   string `json:"short"`
-	Weight  int    `json:"weight"`
+	Weight  int    `json:"weight"` // the domain's share of this exam's task weight, in percent
 	Pass    int    `json:"pass"`
 	Total   int    `json:"total"`
 	Percent int    `json:"percent"`
+}
+
+// pct is num/den as a rounded percentage.
+func pct(num, den int) int {
+	if den <= 0 {
+		return 0
+	}
+	return (200*num/den + 1) / 2
 }
 
 func (a *App) handleExamEnd(w http.ResponseWriter, r *http.Request) {
@@ -302,36 +343,47 @@ func (a *App) handleExamEnd(w http.ResponseWriter, r *http.Request) {
 		}
 		s, err := a.runner.Check(q)
 		if err != nil {
-			s = &Score{N: n, Title: q.Title, Domain: q.Domain, Tasks: []Task{}}
+			s = &Score{N: n, Title: q.Title, Domain: q.Domain, Weight: q.Weight, Tasks: []Task{}}
 		}
 		mu.Lock()
 		results[n] = s
 		mu.Unlock()
 	})
 
-	// Same weighting as the CLI: each domain's task ratio times its exam weight.
+	// Same scoring as the CLI, and as the exam: each question counts with its task weight
+	// and gives partial credit per task. Earned points are kept in 1/1000 weight points.
+	wsum := 0
+	for _, n := range ids {
+		if q := c.Questions[n]; q != nil {
+			wsum += q.Weight
+		}
+	}
 	doms := []domainResult{} // [] not null in the JSON, even when nothing could be graded
-	weighted, wsum := 0, 0
+	earned := 0
 	for _, d := range domainOrder {
-		dr := domainResult{Code: d, Name: domains[d].Name, Short: domains[d].Short, Weight: domains[d].Weight}
+		dr := domainResult{Code: d, Name: domains[d].Name, Short: domains[d].Short}
+		dw, de := 0, 0
 		for _, n := range ids {
-			if s := results[n]; s != nil && s.Domain == d {
-				dr.Pass += s.Pass
-				dr.Total += s.Total
+			s := results[n]
+			if s == nil || s.Domain != d {
+				continue
+			}
+			dw += s.Weight
+			dr.Pass += s.Pass
+			dr.Total += s.Total
+			if s.Total > 0 {
+				de += s.Weight * 1000 * s.Pass / s.Total
 			}
 		}
-		if dr.Total == 0 {
+		if dw == 0 {
 			continue
 		}
-		dr.Percent = dr.Pass * 100 / dr.Total
-		weighted += dr.Weight * dr.Pass * 1000 / dr.Total
-		wsum += dr.Weight
+		dr.Weight = pct(dw, wsum)
+		dr.Percent = pct(de, dw*1000)
+		earned += de
 		doms = append(doms, dr)
 	}
-	score := 0
-	if wsum > 0 {
-		score = weighted / wsum / 10
-	}
+	score := pct(earned, wsum*1000)
 	questions := []*Score{}
 	for _, n := range ids {
 		if s := results[n]; s != nil {

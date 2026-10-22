@@ -10,6 +10,8 @@ interface Props {
   passed: Set<number>
   next: number | null
   examQuestions: number[]
+  flags: Set<number>
+  weightPct: (n: number) => number | null
   titles: Map<number, string>
   current: View
   onOpenQuestion: (n: number) => void
@@ -49,22 +51,30 @@ export function CourseDrawer(p: Props) {
         <div className="drawer-body">
           {inExam ? (
             <ol className="exam-list">
-              {p.examQuestions.map((n, i) => (
-                <li key={n}>
-                  <button
-                    type="button"
-                    className={isCurrent(n) ? 'drawer-item current' : 'drawer-item'}
-                    onClick={() => p.onOpenQuestion(n)}
-                  >
-                    <span className="status num">{i + 1}.</span>
-                    <span className="item-text">
-                      <span className="item-title">
-                        Q{n} {p.titles.get(n) ?? ''}
+              {p.examQuestions.map((n, i) => {
+                const w = p.weightPct(n)
+                const flagged = p.flags.has(n)
+                return (
+                  <li key={n}>
+                    <button
+                      type="button"
+                      className={isCurrent(n) ? 'drawer-item current' : 'drawer-item'}
+                      onClick={() => p.onOpenQuestion(n)}
+                    >
+                      <span className="status num">{i + 1}.</span>
+                      <span className="item-text">
+                        <span className="item-title">
+                          Q{n} {p.titles.get(n) ?? ''}
+                        </span>
+                        <span className="item-sub">
+                          {w !== null && `Task weight ${w}%`}
+                          {flagged && <span className="flagged"> · ⚑ flagged</span>}
+                        </span>
                       </span>
-                    </span>
-                  </button>
-                </li>
-              ))}
+                    </button>
+                  </li>
+                )
+              })}
             </ol>
           ) : !p.course ? (
             <p className="muted pad">Loading the course…</p>

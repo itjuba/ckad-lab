@@ -12,30 +12,35 @@ export const domains: Record<string, Domain> = {
 
 type Q = CourseSection['questions'][number]
 
-const q = (n: number, title: string, lesson: string, domain: Q['domain']): Omit<Q, 'passed'> => ({
+export const contexts = ['ckad-c1', 'ckad-c2']
+
+// Weights: the exam [4, 1, 3] adds up to 12, so Q4 is 50%, Q1 17% and Q3 33% of it.
+const q = (n: number, title: string, lesson: string, domain: Q['domain'], weight: number, context: string): Omit<Q, 'passed'> => ({
   n,
   title,
   lesson,
   domain,
+  weight,
+  context,
 })
 
 export const sections: { title: string; questions: Omit<Q, 'passed'>[] }[] = [
   {
     title: 'Pods & kubectl basics',
     questions: [
-      q(1, 'Namespace and pod inventory', 'Namespaces, labels and selectors', 'D3'),
-      q(5, 'Multi-container pod', 'Sidecars and shared volumes', 'D1'),
+      q(1, 'Namespace and pod inventory', 'Namespaces, labels and selectors', 'D3', 2, 'ckad-c1'),
+      q(5, 'Multi-container pod', 'Sidecars and shared volumes', 'D1', 5, 'ckad-c2'),
     ],
   },
   {
     title: 'Configuration',
-    questions: [q(3, 'ConfigMap and Secret env', 'ConfigMaps, Secrets and env vars', 'D4')],
+    questions: [q(3, 'ConfigMap and Secret env', 'ConfigMaps, Secrets and env vars', 'D4', 4, 'ckad-c1')],
   },
   {
     title: 'Deployments & Services',
     questions: [
-      q(2, 'Rolling update and rollback', 'Deployments and rollouts', 'D2'),
-      q(4, 'Expose with a Service', 'Services and endpoints', 'D5'),
+      q(2, 'Rolling update and rollback', 'Deployments and rollouts', 'D2', 5, 'ckad-c2'),
+      q(4, 'Expose with a Service', 'Services and endpoints', 'D5', 6, 'ckad-c2'),
     ],
   },
 ]
@@ -51,6 +56,7 @@ export function course(passed: number[]): Course {
       questions: s.questions.map((x) => ({ ...x, passed: passed.includes(x.n) })),
     })),
     domains,
+    contexts,
   }
 }
 
@@ -127,6 +133,7 @@ export const examResult: ExamResult = {
       n: 4,
       title: 'Expose with a Service',
       domain: 'D5',
+      weight: 6,
       pass: 2,
       total: 2,
       tasks: [
@@ -138,6 +145,7 @@ export const examResult: ExamResult = {
       n: 1,
       title: 'Namespace and pod inventory',
       domain: 'D3',
+      weight: 2,
       pass: 3,
       total: 3,
       tasks: [{ ok: true, text: 'team-namespaces is correct' }],
@@ -146,6 +154,7 @@ export const examResult: ExamResult = {
       n: 3,
       title: 'ConfigMap and Secret env',
       domain: 'D4',
+      weight: 4,
       pass: 1,
       total: 3,
       tasks: [

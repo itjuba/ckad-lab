@@ -104,6 +104,7 @@ export class MockApi {
     examStartedAt: null,
     examSeconds: 7200,
     examQuestions: [],
+    flags: [],
     passed: [],
   }
   // Grading results per question; questions not listed get 2 of 3 tasks.
@@ -130,12 +131,14 @@ export class MockApi {
     this.state.mode = 'exam'
     this.state.examStartedAt = Math.floor(Date.now() / 1000) - secondsAgo
     this.state.examQuestions = [...examQuestions]
+    this.state.flags = []
   }
 
   stopExam() {
     this.state.mode = 'learn'
     this.state.examStartedAt = null
     this.state.examQuestions = []
+    this.state.flags = []
   }
 
   stateJson(): State {
@@ -143,6 +146,7 @@ export class MockApi {
       ...this.state,
       passed: [...this.state.passed],
       examQuestions: [...this.state.examQuestions],
+      flags: [...this.state.flags],
       next: learningPath.find((n) => !this.state.passed.includes(n)) ?? null,
       total: learningPath.length,
     }
@@ -170,7 +174,7 @@ export class MockApi {
     )
   }
 
-  private builtin: Handler = ({ method, path }) => {
+  private builtin: Handler = ({ method, path, body }) => {
     const inExam = this.state.mode === 'exam'
     const blocked = (what: string): Reply => ({
       status: 403,
@@ -203,7 +207,7 @@ export class MockApi {
       return { json: { ok: true } }
     }
 
-    const m = path.match(/^\/api\/questions\/(\d+)(?:\/(lesson|solution|check|reset))?$/)
+    const m = path.match(/^\/api\/questions\/(\d+)(?:\/(lesson|solution|check|reset|flag))?$/)
     if (m) {
       const n = Number(m[1])
       const q = allQuestions.find((x) => x.n === n)
@@ -212,8 +216,24 @@ export class MockApi {
       if (action === 'GET ') {
         const step = learningPath.indexOf(n) + 1
         return {
-          json: { n, title: q.title, domain: q.domain, step: step || null, steps: learningPath.length, markdown: questionMarkdown(n) },
+          json: {
+            n,
+            title: q.title,
+            domain: q.domain,
+            weight: q.weight,
+            context: q.context,
+            step: step || null,
+            steps: learningPath.length,
+            markdown: questionMarkdown(n),
+          },
         }
+      }
+      if (action === 'POST flag') {
+        if (!inExam) return { status: 409, json: { error: 'flags are for exams: no exam is running' } }
+        const on = !!(body as { flag?: boolean } | undefined)?.flag
+        this.state.flags = this.state.flags.filter((x) => x !== n)
+        if (on) this.state.flags.push(n)
+        return { json: this.stateJson() }
       }
       if (action === 'GET lesson') return inExam ? blocked('lessons') : { json: { markdown: lessonMarkdown(n) } }
       if (action === 'GET solution') return inExam ? blocked('solutions') : { json: { markdown: solutionMarkdown(n) } }

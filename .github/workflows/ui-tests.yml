@@ -1,10 +1,10 @@
-name: Web UI tests
+name: Tests
 
 on:
   push:
-    paths: ['sim/ui/**', '.github/workflows/ui-tests.yml']
+    paths: ['sim/ui/**', 'sim/terminal/**', 'sim/node/**', 'sim/bin/**', 'sim/questions/**', 'sim/compose/**', 'compose.yaml', '.github/workflows/ui-tests.yml']
   pull_request:
-    paths: ['sim/ui/**', '.github/workflows/ui-tests.yml']
+    paths: ['sim/ui/**', 'sim/terminal/**', 'sim/node/**', 'sim/bin/**', 'sim/questions/**', 'sim/compose/**', 'compose.yaml', '.github/workflows/ui-tests.yml']
 
 jobs:
   mock:
@@ -14,8 +14,8 @@ jobs:
       run:
         working-directory: sim/ui/web
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: npm
@@ -24,7 +24,7 @@ jobs:
       - run: npx tsc --noEmit
       - run: npx playwright install --with-deps chromium
       - run: npm run test:mock
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: failure()
         with:
           name: playwright-report
@@ -38,9 +38,18 @@ jobs:
       run:
         working-directory: sim/ui/server
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
         with:
           go-version-file: sim/ui/server/go.mod
+          cache-dependency-path: sim/ui/server/go.sum
       - run: go vet ./...
       - run: go build ./...
+
+  compose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+      - run: docker compose config --quiet
+      - run: for f in sim/terminal/*.sh sim/node/*.sh sim/bin/ckad sim/questions/*/*.sh; do bash -n "$f"; done

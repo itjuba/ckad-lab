@@ -91,13 +91,13 @@ test.describe('one-click copy, like the exam', () => {
 
   test('only inline values in questions are click-to-copy', async ({ page }) => {
     await page.goto('/')
-    await expect(ui(page).content.locator('code.copyable')).toHaveCount(2)
+    await expect(ui(page).content.locator('.markdown code.copyable')).toHaveCount(2)
     // Code blocks keep their copy button instead.
     await expect(ui(page).content.locator('pre code.copyable')).toHaveCount(0)
     await ui(page).tab('Solution').click()
     await page.getByRole('button', { name: 'Show the solution' }).click()
     await expect(ui(page).content).toContainText('create deployment web')
-    await expect(ui(page).content.locator('code.copyable')).toHaveCount(0)
+    await expect(ui(page).content.locator('.markdown code.copyable')).toHaveCount(0)
   })
 })
 

@@ -1,0 +1,155 @@
+# CKAD Lab with Docker Compose: the same simulator as sim.ps1, on any OS with Docker.
+#
+#   docker compose up -d               build and start; the first time also sets up every
+#                                      question (a few minutes: docker compose logs -f setup)
+#   http://localhost:8090              web UI
+#   docker compose exec terminal bash  the exam terminal (or the terminal in the web UI)
+#   docker compose stop / start        pause / resume, keeping your work
+#   docker compose build && docker compose up -d
+#                                      after git pull: rebuild terminal and build host, keep your work
+#   docker compose down -v             delete everything, clusters included
+#
+# Use this or sim.ps1, not both at once: they share ports 8090/5000 and the course/ folder.
+# The node, registry and build host names match the k3d ones (k3d-ckad-server-0, ...)
+# because questions use them. Two clusters, like the exam's contexts: ckad-c1 is `server`
+# + `agent`, ckad-c2 is `server2`.
+name: ckad-lab
+
+x-k3s: &k3s
+  image: rancher/k3s:v1.37.1-k3s1 # CKAD exam runs v1.37 (same as sim.ps1)
+  privileged: true
+  restart: unless-stopped
+  tmpfs: [/run, /var/run]
+  ulimits:
+    nproc: 65535
+    nofile: { soft: 65535, hard: 65535 }
+
+x-terminal: &terminal
+  build: ./sim
+  image: ckad-terminal:latest
+  volumes:
+    - ./sim:/ckad # live: edits to questions apply without a rebuild
+    - ${CKAD_COURSE_DIR:-./course}:/opt/course # your answers and progress
+    - kubeconfig:/ckad-state:ro
+    - ssh:/ckad-state/ssh:ro # key pair for `ssh ckad-build`, written by the build host
+  environment:
+    # k3s writes 127.0.0.1 in its kubeconfigs; the clusters answer by host name.
+    CKAD_KUBE_SERVER: https://k3d-ckad-server-0:6443
+    CKAD_KUBE_SERVER_2: https://k3d-ckad2-server-0:6443
+
+services:
+  server:
+    <<: *k3s
+    hostname: k3d-ckad-server-0 # = the node name
+    command: server --tls-san=k3d-ckad-server-0
+    environment:
+      K3S_TOKEN: ckad-lab
+      K3S_KUBECONFIG_OUTPUT: /output/kubeconfig
+      K3S_KUBECONFIG_MODE: '644'
+    volumes:
+      - k3s-server:/var/lib/rancher/k3s
+      - kubeconfig:/output
+      - ./sim/compose/registries.yaml:/etc/rancher/k3s/registries.yaml:ro
+    networks:
+      default:
+        aliases: [k3d-ckad-server-0]
+    healthcheck:
+      test: [CMD, kubectl, get, --raw=/readyz]
+      interval: 5s
+      timeout: 5s
+      retries: 60
+
+  agent:
+    <<: *k3s
+    hostname: k3d-ckad-agent-0
+    command: agent
+    environment:
+      K3S_TOKEN: ckad-lab
+      K3S_URL: https://k3d-ckad-server-0:6443
+    volumes:
+      - k3s-agent:/var/lib/rancher/k3s
+      - ./sim/compose/registries.yaml:/etc/rancher/k3s/registries.yaml:ro
+    networks:
+      default:
+        aliases: [k3d-ckad-agent-0]
+    depends_on:
+      server: { condition: service_healthy }
+
+  # Cluster 2 (context ckad-c2): one node, no ingress controller.
+  server2:
+    <<: *k3s
+    hostname: k3d-ckad2-server-0
+    command: server --tls-san=k3d-ckad2-server-0 --disable=traefik
+    environment:
+      K3S_TOKEN: ckad-lab-2
+      K3S_KUBECONFIG_OUTPUT: /output/kubeconfig-2
+      K3S_KUBECONFIG_MODE: '644'
+    volumes:
+      - k3s-server2:/var/lib/rancher/k3s
+      - kubeconfig:/output
+      - ./sim/compose/registries.yaml:/etc/rancher/k3s/registries.yaml:ro
+    networks:
+      default:
+        aliases: [k3d-ckad2-server-0]
+    healthcheck:
+      test: [CMD, kubectl, get, --raw=/readyz]
+      interval: 5s
+      timeout: 5s
+      retries: 60
+
+  # Pods pull localhost:5000/<image>, the name you push to from the build host.
+  registry:
+    image: registry:2
+    restart: unless-stopped
+    ports: ['${CKAD_REGISTRY_PORT:-5000}:5000']
+    volumes: [registry:/var/lib/registry]
+    networks:
+      default:
+        aliases: [k3d-ckad-registry]
+
+  # The build host: `ssh ckad-build` from the terminal; podman, no kubectl. Privileged so
+  # podman can build images inside it.
+  build:
+    build: ./sim/node
+    image: ckad-build:latest
+    hostname: ckad-build
+    privileged: true
+    restart: unless-stopped
+    volumes:
+      - ${CKAD_COURSE_DIR:-./course}:/opt/course
+      - ssh:/ckad-state/ssh
+    networks:
+      default:
+        aliases: [ckad-build]
+
+  # The exam terminal, with the web UI on :8090.
+  terminal:
+    <<: *terminal
+    hostname: ckad
+    restart: unless-stopped
+    ports: ['127.0.0.1:${CKAD_UI_PORT:-8090}:8090']
+    depends_on:
+      server: { condition: service_healthy }
+      server2: { condition: service_healthy }
+      build: { condition: service_started }
+
+  # One-shot: waits for the clusters, then sets up every question the first time only.
+  setup:
+    <<: *terminal
+    command: [bash, /ckad/terminal/compose-setup.sh]
+    restart: 'no'
+    depends_on:
+      server: { condition: service_healthy }
+      server2: { condition: service_healthy }
+      agent: { condition: service_started }
+      registry: { condition: service_started }
+      build: { condition: service_started }
+      terminal: { condition: service_started }
+
+volumes:
+  k3s-server:
+  k3s-agent:
+  k3s-server2:
+  kubeconfig:
+  registry:
+  ssh:

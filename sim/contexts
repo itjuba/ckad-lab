@@ -1,0 +1,12 @@
+# Kubernetes contexts of the exam environment. Like the real exam, every question starts
+# with "Set configuration context: kubectl config use-context <name>", and clusters differ.
+#
+#   <context>   <cluster>
+#
+# Cluster 1 is k3d "ckad" (1 control plane + 1 worker): the Ingress, NodePort, node and
+# image questions live there. Cluster 2 is k3d "ckad2" (1 node). Each question names its
+# context in questions/qNN/context; the runner sets up and grades a question in that context
+# whatever the terminal's current context is, so work done in the wrong cluster scores 0.
+# Without a second cluster (no /ckad-state/kubeconfig-2), every context points to cluster 1.
+ckad-c1   1
+ckad-c2   2

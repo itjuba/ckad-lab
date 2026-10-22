@@ -25,6 +25,7 @@ type Score struct {
 	N      int    `json:"n"`
 	Title  string `json:"title"`
 	Domain string `json:"domain"`
+	Weight int    `json:"weight"`
 	Pass   int    `json:"pass"`
 	Total  int    `json:"total"`
 	Tasks  []Task `json:"tasks"`
@@ -32,9 +33,10 @@ type Score struct {
 
 // Runner executes question scripts the same way the ckad CLI does.
 type Runner struct {
-	home   string
-	logDir string
-	locks  sync.Map // per-question mutex: no check while a reset of the same question runs
+	home    string
+	logDir  string
+	kubeDir string   // one kubeconfig per context, pinned to it (terminal/kubeconfig.sh)
+	locks   sync.Map // per-question mutex: no check while a reset of the same question runs
 }
 
 func (r *Runner) lock(n int) *sync.Mutex {
@@ -42,11 +44,23 @@ func (r *Runner) lock(n int) *sync.Mutex {
 	return m.(*sync.Mutex)
 }
 
+// script runs a question script in the question's own context, whatever context the
+// candidate switched to. Without the pinned kubeconfigs it uses the candidate's, like before.
 func (r *Runner) script(ctx context.Context, q *Question, name string) *exec.Cmd {
 	cmd := exec.CommandContext(ctx, "bash", filepath.Join(q.Dir, name))
 	cmd.Env = append(os.Environ(), "CKAD_HOME="+r.home)
+	if q.Context != "" {
+		if kc := filepath.Join(r.kubeDir, q.Context); fileExists(kc) {
+			cmd.Env = append(cmd.Env, "KUBECONFIG="+kc)
+		}
+	}
 	cmd.Dir = "/root"
 	return cmd
+}
+
+func fileExists(path string) bool {
+	st, err := os.Stat(path)
+	return err == nil && !st.IsDir()
 }
 
 // Check runs check.sh and parses its "✔ text" / "✘ text" lines and the final RESULT line.
@@ -61,7 +75,7 @@ func (r *Runner) Check(q *Question) (*Score, error) {
 	if ctx.Err() != nil {
 		return nil, fmt.Errorf("check for question %d timed out", q.N)
 	}
-	s := &Score{N: q.N, Title: q.Title, Domain: q.Domain, Tasks: []Task{}}
+	s := &Score{N: q.N, Title: q.Title, Domain: q.Domain, Weight: q.Weight, Tasks: []Task{}}
 	for _, line := range strings.Split(ansi.ReplaceAllString(string(out), ""), "\n") {
 		line = strings.TrimSpace(line)
 		switch {

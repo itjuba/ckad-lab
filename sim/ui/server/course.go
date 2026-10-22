@@ -33,26 +33,50 @@ var examPick = map[string]int{"D1": 4, "D2": 4, "D3": 3, "D4": 4, "D5": 3}
 
 // Question is the static description of one question folder.
 type Question struct {
-	N      int
-	Title  string
-	Lesson string
-	Domain string
-	Dir    string
+	N       int
+	Title   string
+	Lesson  string
+	Domain  string
+	Weight  int    // task weight: its share of an exam, in points (~100 per exam)
+	Context string // the kubectl context it is set up and graded in
+	Dir     string
 }
+
+const defaultWeight = 4
 
 type Section struct {
 	Title     string
 	Questions []int
 }
 
-// Course is everything read from disk: questions and the learning path.
+// Course is everything read from disk: questions, the learning path and the contexts.
 type Course struct {
 	Questions map[int]*Question
 	Sections  []Section
-	Path      []int // learning order (only existing questions)
+	Path      []int    // learning order (only existing questions)
+	Contexts  []string // from the contexts file, in order; the first is the default
 }
 
 var questionDir = regexp.MustCompile(`^q(\d+)$`)
+
+// loadContexts reads the context names from the contexts file (one per line, first word).
+func loadContexts(home string) []string {
+	f, err := os.Open(filepath.Join(home, "contexts"))
+	if err != nil {
+		return nil
+	}
+	defer f.Close()
+	var out []string
+	s := bufio.NewScanner(f)
+	for s.Scan() {
+		fields := strings.Fields(s.Text())
+		if len(fields) == 0 || strings.HasPrefix(fields[0], "#") {
+			continue
+		}
+		out = append(out, fields[0])
+	}
+	return out
+}
 
 func firstLine(path string) string {
 	f, err := os.Open(path)
@@ -82,7 +106,11 @@ func loadCourse(home string) (*Course, error) {
 	if err != nil {
 		return nil, err
 	}
-	c := &Course{Questions: map[int]*Question{}}
+	c := &Course{Questions: map[int]*Question{}, Contexts: loadContexts(home)}
+	defaultContext := ""
+	if len(c.Contexts) > 0 {
+		defaultContext = c.Contexts[0]
+	}
 	for _, e := range entries {
 		m := questionDir.FindStringSubmatch(e.Name())
 		if !e.IsDir() || m == nil {
@@ -91,10 +119,18 @@ func loadCourse(home string) (*Course, error) {
 		n, _ := strconv.Atoi(m[1])
 		dir := filepath.Join(home, "questions", e.Name())
 		q := &Question{
-			N:      n,
-			Dir:    dir,
-			Title:  strings.TrimSpace(strings.TrimPrefix(firstLine(filepath.Join(dir, "question.md")), "#")),
-			Domain: readTrim(filepath.Join(dir, "domain")),
+			N:       n,
+			Dir:     dir,
+			Title:   strings.TrimSpace(strings.TrimPrefix(firstLine(filepath.Join(dir, "question.md")), "#")),
+			Domain:  readTrim(filepath.Join(dir, "domain")),
+			Weight:  defaultWeight,
+			Context: defaultContext,
+		}
+		if w, err := strconv.Atoi(readTrim(filepath.Join(dir, "weight"))); err == nil && w > 0 {
+			q.Weight = w
+		}
+		if ctx := readTrim(filepath.Join(dir, "context")); ctx != "" {
+			q.Context = ctx
 		}
 		if l := firstLine(filepath.Join(dir, "explain.md")); l != "" {
 			l = strings.TrimSpace(strings.TrimPrefix(l, "#"))
