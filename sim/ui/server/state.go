@@ -1,8 +1,10 @@
 package main
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -152,6 +154,93 @@ func (s *State) AppendHistory(line string) error {
 	defer f.Close()
 	_, err = f.WriteString(line + "\n")
 	return err
+}
+
+// --- practice timers (same files as the ckad CLI) ------------------------------------
+//
+// timers: "N START" per running stopwatch (unix seconds). times: "N SECONDS", the best time
+// in which question N was passed. Exam mode uses neither: it has one clock for the exam.
+
+// secondsPerWeight is the exam's pace: 120 minutes for 100% of the weight.
+const secondsPerWeight = 72
+
+func targetSeconds(weight int) int { return weight * secondsPerWeight }
+
+func (s *State) readMap(name string) map[int]int64 {
+	m := map[int]int64{}
+	for _, line := range strings.Split(s.read(name), "\n") {
+		f := strings.Fields(line)
+		if len(f) != 2 {
+			continue
+		}
+		n, err1 := strconv.Atoi(f[0])
+		v, err2 := strconv.ParseInt(f[1], 10, 64)
+		if err1 == nil && err2 == nil {
+			m[n] = v
+		}
+	}
+	return m
+}
+
+func (s *State) writeMap(name string, m map[int]int64) error {
+	if len(m) == 0 {
+		s.remove(name)
+		return nil
+	}
+	keys := make([]int, 0, len(m))
+	for n := range m {
+		keys = append(keys, n)
+	}
+	sort.Ints(keys)
+	var b strings.Builder
+	for _, n := range keys {
+		fmt.Fprintf(&b, "%d %d\n", n, m[n])
+	}
+	return s.write(name, b.String())
+}
+
+func (s *State) Timers() map[int]int64 { return s.readMap("timers") }
+func (s *State) Times() map[int]int64  { return s.readMap("times") }
+
+// StartTimer starts question n's stopwatch now. With onlyIfIdle it leaves a running one, and
+// one for a passed question, alone: opening a question you passed doesn't start a new attempt.
+func (s *State) StartTimer(n int, onlyIfIdle bool) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	t := s.Timers()
+	if onlyIfIdle {
+		if _, running := t[n]; running || s.IsPassed(n) {
+			return nil
+		}
+	}
+	t[n] = time.Now().Unix()
+	return s.writeMap("timers", t)
+}
+
+// StopTimer ends question n's attempt after a full pass and keeps the best time. It returns
+// the attempt's time and the best time, or -1 when no stopwatch was running.
+func (s *State) StopTimer(n int) (took, best int64) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	t := s.Timers()
+	start, running := t[n]
+	times := s.Times()
+	best, ok := times[n]
+	if !ok {
+		best = -1
+	}
+	if !running {
+		return -1, best
+	}
+	took = time.Now().Unix() - start
+	delete(t, n)
+	s.writeMap("timers", t)
+	if best < 0 || took < best {
+		best = took
+		times[n] = took
+		s.writeMap("times", times)
+	}
+	return took, best
 }
 
 func fmtDuration(seconds int64) string {

@@ -49,7 +49,12 @@ export function TopBar({ state, now, theme, onToggleTheme, onCourse, onStartExam
       <button type="button" className="btn ghost" onClick={onCourse}>
         {inExam ? 'Questions' : 'Course'}
       </button>
-      {state && !inExam && (
+      {state && !inExam && state.examBusy === 'starting' && (
+        <span className="muted" role="status" title="The exam's questions are being reset; it starts by itself">
+          Setting up the exam…
+        </span>
+      )}
+      {state && !inExam && state.examBusy !== 'starting' && (
         <button type="button" className="btn ghost" onClick={onStartExam}>
           Start exam
         </button>

@@ -115,6 +115,7 @@ func main() {
 	mux.HandleFunc("POST /api/questions/{n}/check", app.handleCheck)
 	mux.HandleFunc("POST /api/questions/{n}/reset", app.handleReset)
 	mux.HandleFunc("POST /api/questions/{n}/flag", app.handleFlag)
+	mux.HandleFunc("POST /api/questions/{n}/timer", app.handleTimer)
 	mux.HandleFunc("POST /api/exam/start", app.handleExamStart)
 	mux.HandleFunc("POST /api/exam/end", app.handleExamEnd)
 	mux.HandleFunc("POST /api/exam/abort", app.handleExamAbort)

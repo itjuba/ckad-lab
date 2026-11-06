@@ -40,7 +40,12 @@ Practice mode (default): follow the learning path, basics first
   check [n]            grade question n (a full score marks it passed), or everything
   solution <n>         show the solution for question n
   reset <n|all>        put question n (or everything) back to its starting state
-  progress clear       forget which questions you passed
+  timer <n>            restart question n's stopwatch
+  progress clear       forget which questions you passed, and your times
+
+Every practice question has a target time from its weight (the exam's pace: 1.2 minutes per
+weight point). Its stopwatch starts when you open it (or reset it); a full pass records your
+time, and ckad list shows your best one.
 
 Exam mode: a 2-hour mock exam, no grading or solutions until the end
   exam start           pick 18 random questions, reset them, start the timer
@@ -103,6 +108,40 @@ exam_only_at_end() {
   echo "Exam mode: no $1 until the end, like the real exam. Finish with: ckad exam end" >&2
   exit 1
 }
+# --- practice timers: a stopwatch per question, a target from its weight ---------------
+# timers holds "N START" per running stopwatch, times "N SECONDS" with the best time a
+# question was passed in. The web UI reads and writes the same files. Exams don't use them.
+SECONDS_PER_WEIGHT=72   # the exam's pace: 120 minutes for 100% of the weight
+target_of() { echo $(($(weight "$1") * SECONDS_PER_WEIGHT)); }
+map_get() { awk -v n="$2" '$1 == n { print $2 }' "$STATE/$1" 2>/dev/null; }
+map_set() {
+  { [ -f "$STATE/$1" ] && awk -v n="$2" '$1 != n' "$STATE/$1"; echo "$2 $3"; } >"$STATE/$1.tmp"
+  mv "$STATE/$1.tmp" "$STATE/$1"
+}
+map_del() {
+  [ -f "$STATE/$1" ] || return 0
+  awk -v n="$2" '$1 != n' "$STATE/$1" >"$STATE/$1.tmp" && mv "$STATE/$1.tmp" "$STATE/$1"
+}
+fmt_short() { if [ "$1" -ge 3600 ]; then fmt_time "$1"; else printf '%d:%02d' $(($1 / 60)) $(($1 % 60)); fi; }
+# start_timer N [restart] : start N's stopwatch; without "restart", only if none is running
+# and N isn't passed (looking at a passed question again doesn't start a new attempt).
+start_timer() {
+  if [ "$2" != restart ]; then
+    [ -n "$(map_get timers "$1")" ] && return
+    passed "$1" && return
+  fi
+  map_set timers "$1" "$(date +%s)"
+}
+# elapsed N : seconds on N's running stopwatch, empty when none is running.
+elapsed() { local s; s=$(map_get timers "$1"); [ -n "$s" ] && echo $(($(date +%s) - s)); }
+# pace SECONDS TARGET : "4:12 (target 6:00)", colored amber over target and red over 2x.
+pace() {
+  local c=32
+  [ "$1" -gt "$2" ] && c=33
+  [ "$1" -gt $(($2 * 2)) ] && c=31
+  printf '\e[%sm%s\e[0m (target %s)' "$c" "$(fmt_short "$1")" "$(fmt_short "$2")"
+}
+
 # weight_sum N... : total weight of the given questions.
 weight_sum() { local n s=0; for n in "$@"; do s=$((s + $(weight "$n"))); done; echo "$s"; }
 # task_weight N : what the question header shows. In an exam it's the exact share of that
@@ -153,8 +192,18 @@ show_question() {
     printf '\e[2mQuestion %s of %s · Q%s · Task weight: %s%% · time left %s%s\e[0m\n' \
       "$(exam_pos "$1")" "$(exam_ids | wc -l)" "$1" "$(task_weight "$1")" "$(fmt_time "$(exam_left)")" "$flag"
   else
+    start_timer "$1"
     printf '\e[2mPractice step %s of %s · Q%s · %s · Task weight: %s%%\e[0m\n' \
       "$(step_of "$1")" "$(path_ids | wc -l)" "$1" "${DNAME[$d]}" "$(task_weight "$1")"
+    local t best
+    t=$(elapsed "$1") best=$(map_get times "$1")
+    if [ -n "$t" ]; then
+      printf 'Target time: %s · your timer: %s  \e[2m(restart it: ckad timer %s)\e[0m\n' \
+        "$(fmt_short "$(target_of "$1")")" "$(fmt_short "$t")" "$1"
+    elif [ -n "$best" ]; then
+      printf 'Passed · best time %s  \e[2m(time another attempt: ckad reset %s)\e[0m\n' \
+        "$(pace "$best" "$(target_of "$1")")" "$1"
+    fi
   fi
   printf 'Set configuration context:  \e[1mkubectl config use-context %s\e[0m\n\n' "$(context_of "$1")"
   cat "$(qdir "$1")/question.md"
@@ -219,7 +268,9 @@ list_learning() {
       n=${line//[[:space:]]/}
       [ -d "$(qdir "$n")" ] || continue
       if passed "$n"; then mark=$(ok); elif [ "$n" = "$(next_id)" ]; then mark='\e[33m▶\e[0m'; else mark=' '; fi
-      printf "    $mark %3s  %-50s %-18s %s\n" "$n" "$(title "$n" | cut -c1-50)" "${DSHORT[$(domain "$n")]}" "$(context_of "$n")"
+      best=$(map_get times "$n")
+      [ -n "$best" ] && best="best $(pace "$best" "$(target_of "$n")")"
+      printf "    $mark %3s  %-50s %-18s %-8s %s\n" "$n" "$(title "$n" | cut -c1-50)" "${DSHORT[$(domain "$n")]}" "$(context_of "$n")" "$best"
     fi
   done <"$PATH_FILE"
 }
@@ -380,10 +431,19 @@ case $cmd in
       echo "Q$1  $(title "$1")  (graded in context $(context_of "$1"))"
       score "$1"
       printf '  %s/%s tasks\n' "$SCORE_PASS" "$SCORE_TOTAL"
+      t=$(elapsed "$1")
       if [ "$SCORE_TOTAL" -gt 0 ] && [ "$SCORE_PASS" = "$SCORE_TOTAL" ]; then
         mark_passed "$1"
+        if [ -n "$t" ]; then
+          best=$(map_get times "$1")
+          { [ -z "$best" ] || [ "$t" -lt "$best" ]; } && { map_set times "$1" "$t"; best=$t; }
+          map_del timers "$1"
+          printf '  Time: %s · best %s\n' "$(pace "$t" "$(target_of "$1")")" "$(fmt_short "$best")"
+        fi
         n=$(next_id)
         if [ -n "$n" ]; then echo "  Passed! Next in the learning path: Q$n $(title "$n")  (ckad next)"; fi
+      elif [ -n "$t" ]; then
+        printf '  Time so far: %s\n' "$(pace "$t" "$(target_of "$1")")"
       fi
     else
       check_all
@@ -407,13 +467,19 @@ case $cmd in
       reset_all
     else
       need "$1"
-      setup_one "$1"
+      setup_one "$1" && ! in_exam && start_timer "$1" restart   # a reset in practice is a new attempt
     fi
+    ;;
+  timer)
+    in_exam && { echo "No per-question timers in an exam: it has one clock (ckad exam)."; exit 1; }
+    need "$1"
+    start_timer "$1" restart
+    echo "Q$1: timer restarted. Target time: $(fmt_short "$(target_of "$1")")."
     ;;
   progress)
     if [ "$1" = clear ]; then
-      rm -f "$STATE/passed"
-      echo "Learning progress cleared."
+      rm -f "$STATE/passed" "$STATE/timers" "$STATE/times"
+      echo "Learning progress and times cleared."
     else
       usage
     fi

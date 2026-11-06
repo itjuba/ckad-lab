@@ -14,9 +14,11 @@ spec_ok() {
     cmd_ok
 }
 # jsonpath prints the command as JSON, which escapes > and &, so match the plain parts.
+# Quotes don't change what the shell runs (echo 'id,name' == echo id,name), so drop them.
 cmd_ok() {
   local cmd
   cmd=$(jp $J -o jsonpath="$T.containers[0].command} $T.containers[0].args}")
+  cmd=${cmd//[\\\"\']/}
   has "$cmd" "mkdir -p /data" && has "$cmd" "echo id,name" && has "$cmd" "cat /data/input.csv"
 }
 check "new Job sagitta-import: busybox:1.37, the new command, backoffLimit 4, restartPolicy Never" spec_ok

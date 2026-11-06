@@ -17,6 +17,9 @@ return **403** `{"error": "Exam mode: ... until the end"}`.
   "examSeconds": 7200,          // exam length
   "examQuestions": [],          // question numbers of the running exam, in exam order
   "flags": [],                  // exam questions flagged for review
+  "examBusy": "",               // "starting" | "grading" while an exam start/end runs, else ""
+  "timers": { "7": 1793042518 },// practice stopwatches: question -> start (unix seconds)
+  "times": { "1": 130 },        // best time per passed question, in seconds
   "passed": [1, 3],             // questions passed in learning mode
   "next": 2,                    // next unpassed question in the learning path, or null
   "total": 42                   // number of questions
@@ -62,6 +65,12 @@ questions add up to about 100), `context` the kubectl context it is set up and g
 
 `POST /api/questions/{n}/flag` body `{"flag": true}` (409 outside an exam): flags or
 unflags an exam question for review, like the real exam. Returns `/api/state`.
+
+`POST /api/questions/{n}/timer` body `{"restart": false}` (409 in an exam): starts the
+question's practice stopwatch, only if none runs and the question isn't passed; with
+`"restart": true` it always restarts it. A reset in practice restarts it too. Course items
+and questions carry `targetSeconds` (72 per weight point, the exam's pace), and a full pass
+from `check` returns `time` and `best` (seconds) when a stopwatch ran.
 
 `GET /api/lessons/0` · `GET /api/questions/{n}/lesson` · `GET /api/questions/{n}/solution`
 ```json

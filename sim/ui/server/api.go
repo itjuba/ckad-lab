@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -20,6 +21,33 @@ type App struct {
 	state  *State
 	runner *Runner
 	examMu sync.Mutex // one exam start/end at a time
+	// examBusy is "starting" or "grading" while examMu is held, "" otherwise. It's in
+	// /api/state, so a page reloaded during a long start or end still knows about it.
+	examBusy atomic.Value
+}
+
+func (a *App) busy() string {
+	s, _ := a.examBusy.Load().(string)
+	return s
+}
+
+// lockExam takes examMu for a start or end, or explains which one is already running.
+func (a *App) lockExam(w http.ResponseWriter, what string) bool {
+	if !a.examMu.TryLock() {
+		if a.busy() == "starting" {
+			fail(w, http.StatusConflict, "An exam is already being set up (its questions are being reset, which can take a few minutes). It starts by itself when that's done.")
+		} else {
+			fail(w, http.StatusConflict, "The exam is being graded. The results appear when that's done.")
+		}
+		return false
+	}
+	a.examBusy.Store(what)
+	return true
+}
+
+func (a *App) unlockExam() {
+	a.examBusy.Store("")
+	a.examMu.Unlock()
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {
@@ -87,6 +115,9 @@ func (a *App) stateJSON(c *Course) map[string]any {
 		"examSeconds":   examSeconds,
 		"examQuestions": exam,
 		"flags":         flags,
+		"examBusy":      a.busy(),
+		"timers":        a.state.Timers(), // practice stopwatches: question -> start (unix seconds)
+		"times":         a.state.Times(),  // best time per passed question, in seconds
 		"passed":        passed,
 		"next":          a.state.Next(c),
 		"total":         len(c.Questions),
@@ -110,6 +141,7 @@ func (a *App) handleCourse(w http.ResponseWriter, r *http.Request) {
 		Lesson  string `json:"lesson"`
 		Domain  string `json:"domain"`
 		Weight  int    `json:"weight"`
+		Target  int    `json:"targetSeconds"`
 		Context string `json:"context"`
 		Passed  bool   `json:"passed"`
 	}
@@ -122,7 +154,7 @@ func (a *App) handleCourse(w http.ResponseWriter, r *http.Request) {
 		sec := section{Title: s.Title, Questions: []item{}}
 		for _, n := range s.Questions {
 			q := c.Questions[n]
-			sec.Questions = append(sec.Questions, item{n, q.Title, q.Lesson, q.Domain, q.Weight, q.Context, a.state.IsPassed(n)})
+			sec.Questions = append(sec.Questions, item{n, q.Title, q.Lesson, q.Domain, q.Weight, targetSeconds(q.Weight), q.Context, a.state.IsPassed(n)})
 		}
 		sections = append(sections, sec)
 	}
@@ -158,8 +190,29 @@ func (a *App) handleQuestion(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"n": q.N, "title": q.Title, "domain": q.Domain, "weight": q.Weight, "context": q.Context,
-		"step": step, "steps": len(c.Path), "markdown": string(md),
+		"step": step, "steps": len(c.Path), "markdown": string(md), "targetSeconds": targetSeconds(q.Weight),
 	})
+}
+
+// handleTimer starts ("start": only if idle and not passed) or restarts a practice stopwatch.
+func (a *App) handleTimer(w http.ResponseWriter, r *http.Request) {
+	c, q, ok := a.questionFromPath(w, r)
+	if !ok {
+		return
+	}
+	if a.state.InExam() {
+		fail(w, http.StatusConflict, "no per-question timers in an exam: it has one clock")
+		return
+	}
+	var body struct {
+		Restart bool `json:"restart"`
+	}
+	json.NewDecoder(r.Body).Decode(&body)
+	if err := a.state.StartTimer(q.N, !body.Restart); err != nil {
+		fail(w, http.StatusInternalServerError, "can't save the timer: %v", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, a.stateJSON(c))
 }
 
 // handleFlag marks or unmarks an exam question for review, like the real exam's flag.
@@ -222,18 +275,28 @@ func (a *App) handleCheck(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	full := s.Total > 0 && s.Pass == s.Total
+	var took, best *int64 // the attempt's time and the best time, when known
 	if full {
 		a.state.MarkPassed(q.N)
+		if t, b := a.state.StopTimer(q.N); t >= 0 {
+			took, best = &t, &b
+		} else if b >= 0 {
+			best = &b
+		}
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"n": q.N, "tasks": s.Tasks, "pass": s.Pass, "total": s.Total,
 		"passed": full, "next": a.state.Next(c),
+		"time": took, "best": best, "targetSeconds": targetSeconds(q.Weight),
 	})
 }
 
 func (a *App) handleReset(w http.ResponseWriter, r *http.Request) {
 	if _, q, ok := a.questionFromPath(w, r); ok {
 		okRun, log := a.runner.Reset(q)
+		if okRun && !a.state.InExam() {
+			a.state.StartTimer(q.N, false) // a reset in practice is a new attempt
+		}
 		writeJSON(w, http.StatusOK, map[string]any{"ok": okRun, "log": log})
 	}
 }
@@ -245,11 +308,10 @@ func (a *App) handleExamStart(w http.ResponseWriter, r *http.Request) {
 		Keep bool `json:"keep"`
 	}
 	json.NewDecoder(r.Body).Decode(&body)
-	if !a.examMu.TryLock() {
-		fail(w, http.StatusConflict, "an exam is already being started or graded")
+	if !a.lockExam(w, "starting") {
 		return
 	}
-	defer a.examMu.Unlock()
+	defer a.unlockExam()
 	if a.state.InExam() {
 		fail(w, http.StatusConflict, "an exam is already running; end it first")
 		return
@@ -315,11 +377,10 @@ func pct(num, den int) int {
 }
 
 func (a *App) handleExamEnd(w http.ResponseWriter, r *http.Request) {
-	if !a.examMu.TryLock() {
-		fail(w, http.StatusConflict, "the exam is already being graded")
+	if !a.lockExam(w, "grading") {
 		return
 	}
-	defer a.examMu.Unlock()
+	defer a.unlockExam()
 	if !a.state.InExam() {
 		fail(w, http.StatusConflict, "no exam running")
 		return

@@ -9,6 +9,9 @@ export interface State {
   examSeconds: number
   examQuestions: number[]
   flags: number[] // exam questions flagged for review
+  examBusy?: '' | 'starting' | 'grading' // a start or end in progress (it can take minutes)
+  timers?: Record<string, number> // practice stopwatches: question -> start (unix seconds)
+  times?: Record<string, number> // best time per passed question, in seconds
   passed: number[]
   next: number | null
   total: number
@@ -26,6 +29,7 @@ export interface CourseQuestion {
   lesson: string
   domain: DomainCode
   weight: number // task weight: its share of an exam in points (~100 per exam)
+  targetSeconds: number // the exam's pace for that weight: 72 seconds per point
   context: string // the kubectl context it is set up and graded in
   passed: boolean
 }
@@ -48,6 +52,7 @@ export interface Question {
   domain: DomainCode
   weight: number
   context: string
+  targetSeconds: number
   step: number | null
   steps: number
   markdown: string
@@ -65,6 +70,9 @@ export interface CheckResult {
   total: number
   passed: boolean
   next: number | null
+  time?: number | null // a full pass: how long this attempt took, if its stopwatch ran
+  best?: number | null // a full pass: the best time so far
+  targetSeconds?: number
 }
 
 export interface ResetResult {
@@ -157,6 +165,7 @@ export const api = {
   check: (n: number) => post<CheckResult>(`/api/questions/${n}/check`),
   reset: (n: number) => post<ResetResult>(`/api/questions/${n}/reset`),
   flag: (n: number, flag: boolean) => post<State>(`/api/questions/${n}/flag`, { flag }),
+  timer: (n: number, restart: boolean) => post<State>(`/api/questions/${n}/timer`, { restart }),
   examStart: (keep: boolean) => post<State>('/api/exam/start', { keep }),
   examEnd: () => post<ExamResult>('/api/exam/end'),
   examAbort: () => post<{ ok: boolean }>('/api/exam/abort'),

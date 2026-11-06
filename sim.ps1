@@ -78,6 +78,7 @@ function Start-Node {
   # Privileged so podman can build images inside it. It shares /opt/course with the terminal
   # and writes the ssh key pair the terminal uses into .state\ssh.
   Invoke-Native docker run -d --name $Node --hostname $Node --network "k3d-$Cluster" --privileged `
+    --restart unless-stopped `
     -v "${Course}:/opt/course" -v "${State}\ssh:/ckad-state/ssh" $NodeImage | Out-Null
 }
 
@@ -85,9 +86,10 @@ function Start-Terminal {
   if (Test-Terminal) { Invoke-Native docker rm -f $Terminal | Out-Null }
   # Leftover from development, when the UI port was forwarded by a separate container.
   if (docker ps -aq --filter 'name=^ckad-ui-proxy$') { docker rm -f ckad-ui-proxy | Out-Null }
-  # The web UI listens on $UiPort inside the terminal; publish it on localhost only.
+  # The web UI listens on $UiPort inside the terminal; publish it on localhost only. Like the
+  # k3d nodes, it comes back by itself after a Docker restart or a reboot.
   Invoke-Native docker run -d --name $Terminal --hostname ckad --network "k3d-$Cluster" `
-    -p "127.0.0.1:${UiPort}:${UiPort}" `
+    --restart unless-stopped -p "127.0.0.1:${UiPort}:${UiPort}" `
     -v "${Root}\sim:/ckad" -v "${Course}:/opt/course" -v "${State}:/ckad-state:ro" $Image | Out-Null
 }
 

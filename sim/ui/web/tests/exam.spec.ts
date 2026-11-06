@@ -56,6 +56,21 @@ test.describe('starting an exam', () => {
     await expect(ui(page).modeBadge).toHaveText('Practice')
   })
 
+  test('a page opened while an exam is being set up says so, instead of offering Start', async ({ page, api }) => {
+    await page.clock.install()
+    api.state.examBusy = 'starting'
+    await page.goto('/')
+    await expect(page.getByRole('status').filter({ hasText: 'Setting up the exam…' })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Start exam' })).toHaveCount(0)
+
+    // The start finishes: the page follows into the exam on its next poll.
+    api.state.examBusy = ''
+    api.startExam(0)
+    await page.clock.fastForward('00:11')
+    await expect(ui(page).modeBadge).toHaveText('Exam')
+    await expect(ui(page).qnum).toHaveText('Q4')
+  })
+
   test('follows an exam started from the CLI', async ({ page, api }) => {
     await page.clock.install()
     await page.goto('/')

@@ -106,6 +106,8 @@ export class MockApi {
     examQuestions: [],
     flags: [],
     passed: [],
+    timers: {},
+    times: {},
   }
   // Grading results per question; questions not listed get 2 of 3 tasks.
   checks: Record<number, CheckResult> = {}
@@ -147,6 +149,8 @@ export class MockApi {
       passed: [...this.state.passed],
       examQuestions: [...this.state.examQuestions],
       flags: [...this.state.flags],
+      timers: { ...this.state.timers },
+      times: { ...this.state.times },
       next: learningPath.find((n) => !this.state.passed.includes(n)) ?? null,
       total: learningPath.length,
     }
@@ -207,7 +211,7 @@ export class MockApi {
       return { json: { ok: true } }
     }
 
-    const m = path.match(/^\/api\/questions\/(\d+)(?:\/(lesson|solution|check|reset|flag))?$/)
+    const m = path.match(/^\/api\/questions\/(\d+)(?:\/(lesson|solution|check|reset|flag|timer))?$/)
     if (m) {
       const n = Number(m[1])
       const q = allQuestions.find((x) => x.n === n)
@@ -222,11 +226,20 @@ export class MockApi {
             domain: q.domain,
             weight: q.weight,
             context: q.context,
+            targetSeconds: q.targetSeconds,
             step: step || null,
             steps: learningPath.length,
             markdown: questionMarkdown(n),
           },
         }
+      }
+      if (action === 'POST timer') {
+        if (inExam) return { status: 409, json: { error: 'no per-question timers in an exam: it has one clock' } }
+        const restart = !!(body as { restart?: boolean } | undefined)?.restart
+        const key = String(n)
+        const idle = this.state.timers![key] === undefined && !this.state.passed.includes(n)
+        if (restart || idle) this.state.timers![key] = Math.floor(Date.now() / 1000)
+        return { json: this.stateJson() }
       }
       if (action === 'POST flag') {
         if (!inExam) return { status: 409, json: { error: 'flags are for exams: no exam is running' } }
@@ -240,10 +253,24 @@ export class MockApi {
       if (action === 'POST check') {
         if (inExam) return blocked('grading')
         const r = this.checks[n] ?? checkResult(n, [true, false, true], null)
-        if (r.passed && !this.state.passed.includes(n)) this.state.passed.push(n)
-        return { json: { ...r, next: this.stateJson().next } }
+        let timing = {}
+        if (r.passed) {
+          if (!this.state.passed.includes(n)) this.state.passed.push(n)
+          const start = this.state.timers![String(n)]
+          if (start !== undefined) {
+            const took = Math.floor(Date.now() / 1000) - start
+            const best = Math.min(took, this.state.times![String(n)] ?? took)
+            delete this.state.timers![String(n)]
+            this.state.times![String(n)] = best
+            timing = { time: took, best, targetSeconds: q.targetSeconds }
+          }
+        }
+        return { json: { ...r, ...timing, next: this.stateJson().next } }
       }
-      if (action === 'POST reset') return { json: { ok: true, log: '' } }
+      if (action === 'POST reset') {
+        if (!inExam) this.state.timers![String(n)] = Math.floor(Date.now() / 1000)
+        return { json: { ok: true, log: '' } }
+      }
     }
 
     this.unhandled.push(key)

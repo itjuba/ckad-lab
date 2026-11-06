@@ -14,13 +14,15 @@ type Q = CourseSection['questions'][number]
 
 export const contexts = ['ckad-c1', 'ckad-c2']
 
-// Weights: the exam [4, 1, 3] adds up to 12, so Q4 is 50%, Q1 17% and Q3 33% of it.
+// Weights: the exam [4, 1, 3] adds up to 12, so Q4 is 50%, Q1 17% and Q3 33% of it. The
+// target time is 72 seconds per weight point, like the server's: Q1 (weight 2) is 2:24.
 const q = (n: number, title: string, lesson: string, domain: Q['domain'], weight: number, context: string): Omit<Q, 'passed'> => ({
   n,
   title,
   lesson,
   domain,
   weight,
+  targetSeconds: weight * 72,
   context,
 })
 

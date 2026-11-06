@@ -47,6 +47,19 @@ export function useLatest<T>(value: T) {
   return ref
 }
 
+// formatShort: m:ss under an hour (a question's time), h:mm:ss beyond.
+export function formatShort(totalSeconds: number): string {
+  const s = Math.max(0, Math.floor(totalSeconds))
+  if (s >= 3600) return formatDuration(s)
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`
+}
+
+// paceClass: within the target, over it, or over twice the target.
+export function paceClass(seconds: number, target: number): 'ok' | 'over' | 'way-over' {
+  if (seconds > target * 2) return 'way-over'
+  return seconds > target ? 'over' : 'ok'
+}
+
 export function formatDuration(totalSeconds: number): string {
   const s = Math.max(0, Math.floor(totalSeconds))
   const h = Math.floor(s / 3600)

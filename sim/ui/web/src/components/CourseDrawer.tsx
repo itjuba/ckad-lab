@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react'
 import type { Course, Mode } from '../api'
+import { formatShort, paceClass } from '../hooks'
 import type { View } from './QuestionPanel'
 
 interface Props {
@@ -12,6 +13,7 @@ interface Props {
   examQuestions: number[]
   flags: Set<number>
   weightPct: (n: number) => number | null
+  times: Record<string, number> // best time per passed question
   titles: Map<number, string>
   current: View
   onOpenQuestion: (n: number) => void
@@ -98,6 +100,7 @@ export function CourseDrawer(p: Props) {
                     {s.questions.map((q) => {
                       const done = p.passed.has(q.n)
                       const isNext = !done && q.n === p.next
+                      const best = p.times[String(q.n)]
                       return (
                         <li key={q.n}>
                           <button
@@ -112,7 +115,15 @@ export function CourseDrawer(p: Props) {
                               <span className="item-title">
                                 Q{q.n} {q.title}
                               </span>
-                              <span className="item-sub">{q.lesson}</span>
+                              <span className="item-sub">
+                                {q.lesson}
+                                {best !== undefined && q.targetSeconds && (
+                                  <span className={`stopwatch ${paceClass(best, q.targetSeconds)}`}>
+                                    {' '}
+                                    · best {formatShort(best)} / {formatShort(q.targetSeconds)}
+                                  </span>
+                                )}
+                              </span>
                             </span>
                           </button>
                         </li>

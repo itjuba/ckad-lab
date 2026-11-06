@@ -54,7 +54,9 @@ export default function App() {
   const [toast, setToast] = useState<string | null>(null)
 
   const inExam = state?.mode === 'exam'
-  const now = useNow(!!inExam)
+  // The open question's practice stopwatch (start time), when one runs.
+  const currentTimer = !inExam && view?.kind === 'question' ? state?.timers?.[String(view.n)] ?? null : null
+  const now = useNow(!!inExam || currentTimer !== null)
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme
@@ -191,6 +193,20 @@ export default function App() {
   // ---- lazy content loading -----------------------------------------------------------
   const currentN = view?.kind === 'question' ? view.n : null
 
+  // Practice: opening a question you haven't passed starts its stopwatch (once; the server
+  // leaves a running one alone, and the CLI shares it).
+  const timerAsked = useRef(new Set<number>())
+  useEffect(() => {
+    if (!state || state.mode !== 'learn' || currentN === null) return
+    if (state.passed.includes(currentN) || state.timers?.[String(currentN)] !== undefined) return
+    if (timerAsked.current.has(currentN)) return
+    timerAsked.current.add(currentN)
+    api
+      .timer(currentN, false)
+      .then(setState)
+      .catch(() => timerAsked.current.delete(currentN))
+  }, [state, currentN])
+
   useEffect(() => {
     if (currentN === null || questions[currentN]) return
     api
@@ -274,8 +290,18 @@ export default function App() {
       setResetMessages((m) => ({ ...m, [n]: { ok: false, text: errorMessage(e) } }))
     } finally {
       setResetting(null)
+      void refreshState() // a reset in practice restarts the question's stopwatch
     }
-  }, [])
+  }, [refreshState])
+
+  const restartTimer = useCallback(async () => {
+    if (currentN === null || inExam) return
+    try {
+      setState(await api.timer(currentN, true))
+    } catch (e) {
+      setToast(errorMessage(e))
+    }
+  }, [currentN, inExam])
 
   const startExam = useCallback(
     async (keep: boolean) => {
@@ -464,6 +490,9 @@ export default function App() {
               weightPct={currentN !== null ? weightPct(currentN) : null}
               flagged={currentN !== null && flags.has(currentN)}
               onToggleFlag={inExam && currentN !== null ? () => void toggleFlag() : null}
+              elapsed={currentTimer !== null ? Math.max(0, now - currentTimer) : null}
+              best={currentN !== null ? state?.times?.[String(currentN)] ?? null : null}
+              onRestartTimer={!inExam && currentTimer !== null ? () => void restartTimer() : null}
               examIndex={examIndex >= 0 ? examIndex : null}
               examCount={state?.examQuestions.length ?? 0}
               tab={tab}
@@ -516,6 +545,7 @@ export default function App() {
         examQuestions={state?.examQuestions ?? []}
         flags={flags}
         weightPct={weightPct}
+        times={state?.times ?? {}}
         titles={titles}
         current={view ?? { kind: 'lesson0' }}
         onOpenQuestion={openQuestion}

@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react'
 import type { CheckResult, Domain, Mode, Question } from '../api'
+import { formatShort, paceClass } from '../hooks'
 import { CopyableCode, Markdown } from './Markdown'
 import { Spinner } from './Modal'
 
@@ -18,6 +19,10 @@ interface Props {
   weightPct: number | null
   flagged: boolean
   onToggleFlag: (() => void) | null // exam only
+  // Practice pace: seconds on the running stopwatch (null when none runs), best time, target.
+  elapsed: number | null
+  best: number | null
+  onRestartTimer: (() => void) | null // practice only
   examIndex: number | null
   examCount: number
   tab: Tab
@@ -54,6 +59,37 @@ function Loading({ what }: { what: string }) {
 
 function ErrorBox({ text }: { text: string }) {
   return <div className="error-box">{text}</div>
+}
+
+// Practice pace: the stopwatch against the question's target time (the exam's pace for its
+// weight), or the best time once passed. It never stops you: it shows if you're too slow.
+function Pace({ elapsed, best, target, onRestart }: { elapsed: number | null; best: number | null; target: number; onRestart: (() => void) | null }) {
+  if (elapsed !== null) {
+    const cls = paceClass(elapsed, target)
+    const hint = cls === 'ok' ? 'On pace' : cls === 'over' ? 'Over the target time' : 'More than twice the target time'
+    return (
+      <span className="pace">
+        <span className={`stopwatch ${cls}`} role="timer" aria-label={`Time on this question: ${formatShort(elapsed)}. ${hint}.`} title={hint}>
+          ⏱ {formatShort(elapsed)}
+        </span>
+        <span className="muted">/ target {formatShort(target)}</span>
+        {onRestart && (
+          <button type="button" className="icon-btn" onClick={onRestart} aria-label="Restart the timer" title="Restart the timer">
+            ↻
+          </button>
+        )}
+      </span>
+    )
+  }
+  if (best !== null) {
+    return (
+      <span className="pace" title="Reset the question to time another attempt">
+        <span className={`stopwatch ${paceClass(best, target)}`}>best {formatShort(best)}</span>
+        <span className="muted">/ target {formatShort(target)}</span>
+      </span>
+    )
+  }
+  return <span className="muted">Target time {formatShort(target)}</span>
 }
 
 // Like the real exam, every question starts with the context to work in.
@@ -158,6 +194,9 @@ export function QuestionPanel(p: Props) {
                   Step {p.question.step} of {p.question.steps}
                 </span>
               )}
+              {!inExam && p.question?.targetSeconds != null && (
+                <Pace elapsed={p.elapsed} best={p.best} target={p.question.targetSeconds} onRestart={p.onRestartTimer} />
+              )}
               {p.onToggleFlag && (
                 <button
                   type="button"
@@ -248,6 +287,12 @@ export function QuestionPanel(p: Props) {
               {p.check.passed && (
                 <div className="passed-banner">
                   <span>Passed!</span>
+                  {p.check.time != null && p.check.targetSeconds != null && (
+                    <span className={`stopwatch ${paceClass(p.check.time, p.check.targetSeconds)}`}>
+                      in {formatShort(p.check.time)} (target {formatShort(p.check.targetSeconds)}
+                      {p.check.best != null && p.check.best < p.check.time ? `, best ${formatShort(p.check.best)}` : ''})
+                    </span>
+                  )}
                   {p.check.next !== null && p.check.next !== n && (
                     <button type="button" className="btn primary small" onClick={() => p.onOpenQuestion(p.check!.next!)}>
                       Next: Q{p.check.next}

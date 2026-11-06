@@ -20,6 +20,16 @@ kubectl --context ckad-c1 -n kube-system rollout status deploy/traefik --timeout
 
 if kubectl get $MARKER >/dev/null 2>&1; then
   echo '==> Questions are already set up (your work is untouched)'
+elif [ -s /opt/course/.ckad/passed ] && [ "${CKAD_SETUP_FORCE:-}" != 1 ]; then
+  # A fresh Compose cluster, but course/ already holds progress: most likely the sim.ps1
+  # environment's. Resetting would delete that work, so don't.
+  cat <<'EOF'
+==> Not setting up: /opt/course already holds progress from another environment (sim.ps1?).
+    Use one environment at a time (see README). To set this Compose environment up anyway,
+    which RESETS every question and deletes the answer files in course/:
+      docker compose run --rm -e CKAD_SETUP_FORCE=1 setup
+EOF
+  exit 0
 else
   echo '==> Setting up questions'
   ckad reset all

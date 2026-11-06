@@ -83,9 +83,12 @@ The questions are set up only on the first `up`. A marker in the cluster records
 running `up` again never resets your work. Answers and progress are in `course/`, like with
 `sim.ps1`. **Use one or the other, not both at once.** They need the same ports
 (8090, 5000), and the first `docker compose up` sets every question up from scratch, which
-clears the answer files in `course/`. To run both side by side, set `CKAD_UI_PORT`,
-`CKAD_REGISTRY_PORT` and `CKAD_COURSE_DIR` to other values, and use another project name
-(`docker compose -p other-name ...`).
+clears the answer files in `course/`. As a safeguard, the Compose setup refuses to do that
+when `course/` already holds progress, and tells you how to force it. If you ran
+`docker compose up` by mistake on a `sim.ps1` machine, `docker compose down -v` removes the
+half-started Compose project; your k3d environment is unaffected. To run both side by side,
+set `CKAD_UI_PORT`, `CKAD_REGISTRY_PORT` and `CKAD_COURSE_DIR` to other values, and use
+another project name (`docker compose -p other-name ...`).
 
 ---
 
@@ -163,6 +166,13 @@ This is the default mode, for practicing topic by topic in the exam's environmen
   ▶ for your next one, and `ckad next` always opens the next unpassed question.
 - `ckad reset <n>` puts a question back to its starting state, so you can repeat it until
   you're fast.
+- **Pace**: every question has a **target time** from its weight, at the exam's pace of
+  1.2 minutes per weight point (a 5% task: 6 minutes). Its stopwatch starts when you open the
+  question (or reset it) and turns amber over the target and red over twice the target. It
+  never stops you. A full pass records your time, and `ckad list` and the course drawer show
+  your best one, so you can see where you're slow and redo those questions until you're
+  under target. `ckad timer <n>` (or ↻ in the UI) restarts a stopwatch; exams have only
+  their one 2-hour clock.
 
 ```bash
 ckad explain 29    # learn the topic first
@@ -274,7 +284,8 @@ resources created in the wrong cluster don't count.
 | `ckad check` | grade every question with the exam's weighted score |
 | `ckad solution <n>` | show the walkthrough for question n |
 | `ckad reset <n>` / `ckad reset all` | restore question n (or all) to its starting state |
-| `ckad progress clear` | forget which questions you passed |
+| `ckad timer <n>` | restart question n's stopwatch (practice) |
+| `ckad progress clear` | forget which questions you passed, and your times |
 | `ckad exam start [--keep]` | start a mock exam |
 | `ckad exam` | exam time left |
 | `ckad flag <n>` | flag exam question n for review (again to unflag) |

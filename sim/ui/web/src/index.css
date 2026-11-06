@@ -387,6 +387,28 @@ body.dragging .splitter {
 .weight {
   font-weight: 600;
 }
+
+/* Practice pace: the stopwatch against the question's target time. */
+.pace {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.pace .icon-btn {
+  padding: 0 4px;
+}
+.stopwatch {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+}
+/* On pace stays plain, like the exam timer: only warnings get a color. */
+.stopwatch.over {
+  color: var(--amber);
+}
+.stopwatch.way-over {
+  color: var(--bad);
+  font-weight: 700;
+}
 .btn.flag.on {
   background: var(--primary);
   border-color: var(--primary);
